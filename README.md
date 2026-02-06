@@ -4,6 +4,12 @@ This repo contains code for preparing data and evaluating auto-generated multi-a
 Before you need to ensure that you have enought of vRAM.
 You must set to `.env` file `OPENAI_API_KEY` and `OPENAI_BASE_URL`.
 
+0. Setup python environment:
+
+```bash
+uv sync
+```
+
 1. Downloading benchmarks
 
 ```bash
