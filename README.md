@@ -10,25 +10,25 @@ You must set to `.env` file `OPENAI_API_KEY` and `OPENAI_BASE_URL`.
 uv sync
 ```
 
-1. Downloading benchmarks
+1. Download benchmarks
 
 ```bash
 download-benchmarks
 ```
 
-2. Preparing HotpotQA and MuSiQue benchmarks
+2. Prepare corpuses for HotpotQA and MuSiQue:
 
 ```bash
 prepare-corpus
 ```
 
-3. Indexing HotpotQA and MuSiQue via BAAI/bge-m3 embedder:
+3. Index HotpotQA and MuSiQue via BAAI/bge-m3 embedder:
 
 ```bash
 build-index --dataset hotpotqa --batch-size 32
 ```
 
-4. Setup configuration at the `config.yaml` and set the path (default path is `./src/retcapslib/config_test.yaml`):
+4. To run experiment configuration at the `config.yaml` and set the path (default path is `./src/retcapslib/config_test.yaml`):
 
 ```bash
 run-experiment
