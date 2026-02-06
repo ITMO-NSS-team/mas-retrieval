@@ -28,7 +28,7 @@ prepare-corpus
 build-index --dataset hotpotqa --batch-size 32
 ```
 
-4. To run experiment configuration at the `config.yaml` and set the path (default path is `./src/retcapslib/config_test.yaml`):
+4. To run experiment setup configuration in the `config.yaml` (default path is `./src/retcapslib/config_test.yaml`):
 
 ```bash
 run-experiment
