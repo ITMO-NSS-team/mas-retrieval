@@ -1,0 +1,32 @@
+experiment:
+  seed: 42
+  samples_per_benchmark: 10
+
+benchmarks:
+  hotpotqa:
+    split: "fullwiki_dev"
+    sample_n: 10
+    collection_name: "hotpotqa"
+
+models:
+  primary: "openai/gpt-4o-mini"
+
+retriever:
+  embedder: "BAAI/bge-m3"
+  reranker: "jinaai/jina-reranker-v3"
+  retrieve_top_k: 20
+  rerank_top_k: 10
+  index_path: "experiments/data/chroma_index/"
+
+execution:
+  timeout_per_question_s: 300
+  max_tool_calls: 20
+  max_retries_on_error: 1
+
+systems:
+  - naive_rag
+  # - single_agent
+
+output:
+  results_dir: "results/"
+  logs_dir: "logs/"

@@ -1,0 +1,20 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+FEDOT.MAS
+AFlow
+MAS-GPT
+ADAS
+AutoAgents
+experiments
+
+uv.lock
+results/
+.env

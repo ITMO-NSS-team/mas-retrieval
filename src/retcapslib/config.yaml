@@ -1,0 +1,45 @@
+experiment:
+  seed: 42
+  samples_per_benchmark: 500
+
+benchmarks:
+  hotpotqa:
+    split: "fullwiki_dev"
+    sample_n: 500
+    stratify_by: "type" # bridge / comparison, 250 each
+    collection_name: "hotpotqa"
+  musique:
+    split: "validation"
+    sample_n: 500
+    stratify_by: "hop_count" # proportional across 2/3/4 hops
+    collection_name: "musique"
+
+models:
+  primary: "gpt-4o-mini"
+  cross_model:
+    - "meta-llama/llama-3.3-70b-instruct"
+    - "qwen/qwen3-235b-a22b"
+
+retriever:
+  embedder: "BAAI/bge-m3"
+  reranker: "jinaai/jina-reranker-v3"
+  retrieve_top_k: 20
+  rerank_top_k: 10
+  index_path: "experiments/data/chroma_index/"
+
+execution:
+  timeout_per_question_s: 300
+  max_tool_calls: 20
+  max_retries_on_error: 1
+
+systems:
+  - naive_rag
+  - single_agent
+  - autoagents
+  - masgpt
+  - adas
+  - cgmas
+
+output:
+  results_dir: "results/"
+  logs_dir: "logs/"
