@@ -6,6 +6,8 @@ You must set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `GITHUB_TOKEN` in the `.env` f
 
 ### Setup
 
+`uv` only:
+
 ```bash
 uv sync
 ```
@@ -13,6 +15,7 @@ uv sync
 ### Pipeline overview
 
 The pipeline consists of four stages: download benchmarks, prepare corpus, build index, run experiment.
+Before you need to instal the [just](https://github.com/casey/just#installation) command runner.
 
 #### HotpotQA
 
