@@ -1,7 +1,7 @@
 """Prepare corpora for HotpotQA and FinanceBench benchmarks.
 
 HotpotQA:     Extracts paragraphs from HotpotQA fullwiki context (~5M paragraphs).
-FinanceBench: Extracts unique evidence pages from the downloaded benchmark JSONL.
+FinanceBench: Extracts all pages from SEC filing PDFs using PyMuPDF (~15K-25K pages).
 """
 
 from __future__ import annotations
@@ -108,74 +108,121 @@ def prepare_hotpotqa_corpus(
 
 def prepare_financebench_corpus(
     output_path: str | Path,
+    pdf_dir: str | Path = "experiments/data/financebench_pdfs",
     benchmark_path: str | Path = "experiments/data/benchmarks/financebench_sample.jsonl",
     max_paragraphs: int | None = None,
 ) -> None:
-    """Prepare corpus from FinanceBench evidence pages.
+    """Prepare corpus from FinanceBench SEC filing PDFs.
 
-    Extracts unique pages from the evidence field across all 150 questions.
-    Deduplicates by (doc_name, evidence_page_num) tuple.
+    Extracts text from every page of each PDF in pdf_dir using PyMuPDF,
+    creating a realistic retrieval corpus (~15K-25K pages) instead of only
+    the ~150 evidence pages from the benchmark dataset.
 
     Args:
         output_path: Path to write financebench_paragraphs.jsonl.
-        benchmark_path: Path to the downloaded financebench_sample.jsonl.
+        pdf_dir: Directory containing downloaded FinanceBench PDFs.
+        benchmark_path: Path to the downloaded financebench_sample.jsonl
+            (used for metadata enrichment).
         max_paragraphs: Optional limit on number of pages (for testing).
     """
+    import pymupdf
+
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf_dir = Path(pdf_dir)
     benchmark_path = Path(benchmark_path)
 
-    print(f"Loading FinanceBench benchmark from: {benchmark_path}")
-    questions = []
-    with open(benchmark_path) as f:
-        for line in f:
-            questions.append(json.loads(line))
+    # Build metadata mapping from benchmark JSONL: doc_name -> metadata
+    metadata_map: dict[str, dict] = {}
+    if benchmark_path.exists():
+        print(f"Loading metadata from: {benchmark_path}")
+        with open(benchmark_path) as f:
+            for line in f:
+                entry = json.loads(line)
+                doc_name = entry.get("doc_name")
+                if doc_name and doc_name not in metadata_map:
+                    metadata_map[doc_name] = {
+                        "company": entry.get("company"),
+                        "doc_type": entry.get("doc_type"),
+                        "doc_period": entry.get("doc_period"),
+                        "gics_sector": entry.get("gics_sector"),
+                    }
+        print(f"Loaded metadata for {len(metadata_map)} documents")
 
-    print(f"Loaded {len(questions)} questions")
+    # Iterate PDFs and extract text page-by-page
+    pdf_files = sorted(pdf_dir.glob("*.pdf"))
+    if not pdf_files:
+        print(f"Warning: no PDF files found in {pdf_dir}")
+        return
 
-    # Extract unique evidence pages
-    seen_pages: set[tuple[str, int]] = set()
+    print(f"Processing {len(pdf_files)} PDFs from: {pdf_dir}")
+
+    seen_ids: set[str] = set()
     paragraphs = []
+    skipped_encrypted = 0
+    skipped_empty = 0
 
-    for q in tqdm(questions, desc="Extracting evidence pages"):
-        evidence_list = q.get("evidence", [])
-        if not isinstance(evidence_list, list):
-            evidence_list = [evidence_list]
+    for pdf_path in tqdm(pdf_files, desc="Processing PDFs"):
+        doc_name = pdf_path.stem
 
-        for ev in evidence_list:
-            if not isinstance(ev, dict):
+        try:
+            doc = pymupdf.open(pdf_path)
+        except Exception as e:
+            print(f"\n  Warning: could not open {pdf_path.name}: {e}")
+            continue
+
+        if doc.is_encrypted:
+            print(f"\n  Warning: skipping encrypted PDF: {pdf_path.name}")
+            skipped_encrypted += 1
+            doc.close()
+            continue
+
+        meta = metadata_map.get(doc_name, {})
+
+        for page_idx in range(len(doc)):
+            page = doc[page_idx]
+            text = page.get_text("text")
+
+            # Skip near-empty pages (covers, image-only pages, etc.)
+            if len(text.strip()) < 50:
+                skipped_empty += 1
                 continue
 
-            doc_name = ev.get("doc_name", q.get("doc_name", ""))
-            page_num = ev.get("evidence_page_num")
-            text = ev.get("evidence_text_full_page", "")
+            # 1-based page numbering to match HF dataset evidence_page_num
+            page_number = page_idx + 1
+            doc_id = f"{_slugify(doc_name)}_p{page_number}"
 
-            if not doc_name or page_num is None or not text.strip():
+            if doc_id in seen_ids:
                 continue
+            seen_ids.add(doc_id)
 
-            key = (doc_name, int(page_num))
-            if key in seen_pages:
-                continue
-            seen_pages.add(key)
+            title = f"{doc_name} (p. {page_number})"
 
-            doc_id = f"{_slugify(doc_name)}_p{page_num}"
-            title = f"{doc_name} (p. {page_num})"
+            entry = {
+                "doc_id": doc_id,
+                "title": title,
+                "text": text,
+            }
+            # Add metadata if available
+            for key in ("company", "doc_type", "doc_period", "gics_sector"):
+                if meta.get(key):
+                    entry[key] = meta[key]
 
-            paragraphs.append(
-                {
-                    "doc_id": doc_id,
-                    "title": title,
-                    "text": text,
-                }
-            )
+            paragraphs.append(entry)
 
             if max_paragraphs and len(paragraphs) >= max_paragraphs:
                 break
 
+        doc.close()
+
         if max_paragraphs and len(paragraphs) >= max_paragraphs:
             break
 
-    print(f"Collected {len(paragraphs)} unique evidence pages")
+    print(f"Collected {len(paragraphs)} pages from {len(pdf_files)} PDFs")
+    if skipped_encrypted:
+        print(f"  Skipped {skipped_encrypted} encrypted PDFs")
+    if skipped_empty:
+        print(f"  Skipped {skipped_empty} near-empty pages")
 
     # Save as JSONL
     print(f"Saving corpus to: {output_path}")
@@ -216,6 +263,12 @@ def main() -> None:
         default=None,
         help="Path to financebench_sample.jsonl (for financebench corpus)",
     )
+    parser.add_argument(
+        "--pdf-dir",
+        type=str,
+        default="experiments/data/financebench_pdfs",
+        help="Directory containing FinanceBench PDFs (for financebench corpus)",
+    )
 
     args = parser.parse_args()
 
@@ -227,7 +280,11 @@ def main() -> None:
     if args.dataset in ("financebench", "all"):
         out = args.output if args.dataset == "financebench" else None
         out = out or DEFAULT_PATHS["financebench"]
-        kwargs = {"output_path": out, "max_paragraphs": args.max_paragraphs}
+        kwargs: dict = {
+            "output_path": out,
+            "max_paragraphs": args.max_paragraphs,
+            "pdf_dir": args.pdf_dir,
+        }
         if args.benchmark_path:
             kwargs["benchmark_path"] = args.benchmark_path
         prepare_financebench_corpus(**kwargs)

@@ -26,7 +26,14 @@ dependencies = [
     "pydotenv>=0.0.7",
     "pydantic-ai>=1.56.0",
     "pydantic-evals>=1.56.0",
+    "pymupdf>=1.25.0",
 ]
+
+[project.scripts]
+download-benchmarks = "retcapslib.data.download_benchmarks:main"
+prepare-corpus = "retcapslib.data.prepare_corpus:main"
+build-index = "retcapslib.retriever.index_builder:main"
+run-experiment = "retcapslib.runners.run_experiment:main"
 
 [dependency-groups]
 swarm = [

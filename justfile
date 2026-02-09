@@ -9,6 +9,9 @@ download-hotpotqa:
 download-financebench:
     uv run download-benchmarks --benchmark financebench
 
+download-financebench-pdfs:
+    uv run download-benchmarks --benchmark financebench-pdfs
+
 # Prepare corpora
 prepare: prepare-hotpotqa prepare-financebench
 
@@ -35,4 +38,4 @@ test-financebench:
     uv run run-experiment --config src/retcapslib/cfg_test_financebench.yaml
 
 # Full pipelines
-pipeline-financebench: download-financebench prepare-financebench index-financebench test-financebench
+pipeline-financebench: download-financebench download-financebench-pdfs prepare-financebench index-financebench test-financebench

@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from datasets import load_dataset
+from tqdm import tqdm
 
 
 def download_hotpotqa(
@@ -113,6 +117,9 @@ def download_financebench(output_dir: str | Path) -> None:
                 "question_type": ex.get("question_type"),
                 "question_reasoning": ex.get("question_reasoning"),
                 "justification": ex.get("justification"),
+                "gics_sector": ex.get("gics_sector"),
+                "doc_type": ex.get("doc_type"),
+                "doc_period": ex.get("doc_period"),
             }
         )
 
@@ -124,6 +131,69 @@ def download_financebench(output_dir: str | Path) -> None:
             f.write(json.dumps(item) + "\n")
 
     print("FinanceBench download complete!")
+
+
+def download_financebench_pdfs(
+    pdf_dir: str | Path = "experiments/data/financebench_pdfs",
+    benchmark_path: str | Path = "experiments/data/benchmarks/financebench_sample.jsonl",
+) -> None:
+    """Download SEC filing PDFs referenced by the FinanceBench dataset.
+
+    Reads the benchmark JSONL to get unique doc_name values, then downloads
+    each PDF from the official patronus-ai/financebench GitHub repository.
+    Files that already exist locally are skipped.
+
+    Args:
+        pdf_dir: Directory to save downloaded PDFs.
+        benchmark_path: Path to the downloaded financebench_sample.jsonl.
+    """
+    pdf_dir = Path(pdf_dir)
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    benchmark_path = Path(benchmark_path)
+
+    # Read benchmark to get unique doc_name values
+    print(f"Loading benchmark from: {benchmark_path}")
+    doc_names: set[str] = set()
+    with open(benchmark_path) as f:
+        for line in f:
+            entry = json.loads(line)
+            doc_name = entry.get("doc_name")
+            if doc_name:
+                doc_names.add(doc_name)
+
+    print(f"Found {len(doc_names)} unique documents to download")
+
+    base_url = "https://raw.githubusercontent.com/patronus-ai/financebench/main/pdfs"
+
+    # Optional GitHub token for rate limits
+    github_token = os.environ.get("GITHUB_TOKEN")
+
+    downloaded = 0
+    skipped = 0
+    failed = 0
+
+    for doc_name in tqdm(sorted(doc_names), desc="Downloading PDFs"):
+        pdf_path = pdf_dir / f"{doc_name}.pdf"
+
+        if pdf_path.exists():
+            skipped += 1
+            continue
+
+        encoded_name = urllib.parse.quote(f"{doc_name}.pdf")
+        url = f"{base_url}/{encoded_name}"
+
+        try:
+            req = urllib.request.Request(url)
+            if github_token:
+                req.add_header("Authorization", f"token {github_token}")
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                pdf_path.write_bytes(resp.read())
+            downloaded += 1
+        except Exception as e:
+            print(f"\n  Warning: failed to download {doc_name}: {e}")
+            failed += 1
+
+    print(f"\nDone: {downloaded} downloaded, {skipped} skipped, {failed} failed")
 
 
 def main() -> None:
@@ -150,9 +220,15 @@ def main() -> None:
     parser.add_argument(
         "--benchmark",
         type=str,
-        choices=["hotpotqa", "financebench", "all"],
+        choices=["hotpotqa", "financebench", "financebench-pdfs", "all"],
         default="all",
         help="Which benchmark to download",
+    )
+    parser.add_argument(
+        "--pdf-dir",
+        type=str,
+        default="experiments/data/financebench_pdfs",
+        help="Directory to save FinanceBench PDFs",
     )
 
     args = parser.parse_args()
@@ -162,6 +238,13 @@ def main() -> None:
 
     if args.benchmark in ("financebench", "all"):
         download_financebench(args.output_dir)
+
+    if args.benchmark == "financebench-pdfs":
+        benchmark_path = Path(args.output_dir) / "financebench_sample.jsonl"
+        download_financebench_pdfs(
+            pdf_dir=args.pdf_dir,
+            benchmark_path=benchmark_path,
+        )
 
 
 if __name__ == "__main__":

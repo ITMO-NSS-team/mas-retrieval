@@ -104,18 +104,27 @@ def build_index(
         if embeddings.dtype != np.float32:
             embeddings = embeddings.astype(np.float32)
 
+        # Build metadata — include extra fields if present in corpus
+        metadatas = []
+        for d in batch_docs:
+            meta = {"title": d["title"], "doc_id": d["doc_id"]}
+            for key in ("company", "doc_type", "doc_period", "gics_sector"):
+                if key in d and d[key]:
+                    meta[key] = str(d[key])
+            metadatas.append(meta)
+
         # Add to ChromaDB collection
         print("  Adding to ChromaDB...", end=" ", flush=True)
         collection.add(
             ids=doc_ids,
             documents=texts,
-            metadatas=[{"title": t, "doc_id": d} for t, d in zip(titles, doc_ids)],
+            metadatas=metadatas,
             embeddings=embeddings.tolist(),
         )
         print("done.", flush=True)
 
         # Free memory
-        del embeddings, texts, doc_ids, titles, batch_docs
+        del embeddings, texts, doc_ids, titles, metadatas, batch_docs
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
