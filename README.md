@@ -33,12 +33,6 @@ just index-financebench          # Build ChromaDB index with BGE-M3
 just test-financebench           # Run experiment
 ```
 
-Or run the full FinanceBench pipeline in one command:
-
-```bash
-just pipeline-financebench
-```
-
 ### Configuration
 
 Experiment configuration files are in `src/retcapslib/`:
