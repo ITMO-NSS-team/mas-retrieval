@@ -25,7 +25,7 @@ execution:
 
 systems:
   - naive_rag
-  # - single_agent
+  - single_agent
 
 output:
   results_dir: "results/"

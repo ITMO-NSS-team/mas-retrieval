@@ -3,10 +3,9 @@ experiment:
   samples_per_benchmark: 10
 
 benchmarks:
-  hotpotqa:
-    split: "fullwiki_dev"
+  financebench:
     sample_n: 10
-    collection_name: "hotpotqa"
+    collection_name: "financebench"
 
 models:
   primary: "openai/gpt-4o-mini"
@@ -25,7 +24,7 @@ execution:
 
 systems:
   - naive_rag
-  # - single_agent
+  - single_agent
 
 output:
   results_dir: "results/"

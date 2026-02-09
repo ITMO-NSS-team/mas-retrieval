@@ -1,4 +1,4 @@
-"""Single agent baseline adapter.
+"""Single agent baseline adapter using pydantic-ai.
 
 Iterative tool-calling agent that can make multiple retrieval calls
 to gather evidence before answering.
@@ -6,68 +6,78 @@ to gather evidence before answering.
 
 from __future__ import annotations
 
-import json
+import os
+from dataclasses import dataclass
 from typing import Any
 
-from openai import OpenAI
+from pydantic_ai import Agent, RunContext
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 from retcapslib.adapters.base import AbstractAdapter
 from retcapslib.logging.schemas import QuestionLog
 from retcapslib.logging.tracker import TokenTracker
 from retcapslib.retriever.core import Retriever
 
-# Tool definition for the agent
-SEARCH_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "search",
-        "description": "Search the knowledge base for relevant passages. Use this to find information needed to answer the question.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search query to find relevant passages.",
-                },
-                "top_k": {
-                    "type": "integer",
-                    "description": "Number of passages to retrieve (default: 5).",
-                    "default": 5,
-                },
-            },
-            "required": ["query"],
-        },
-    },
-}
+
+@dataclass
+class SingleAgentDeps:
+    """Dependencies injected into the pydantic-ai agent tools."""
+
+    retriever: Retriever
+    tracker: TokenTracker
+
+
+agent = Agent(
+    deps_type=SingleAgentDeps,
+    system_prompt=(
+        "You are a helpful assistant that answers questions by searching for relevant information.\n\n"
+        "You have access to a search tool that retrieves passages from a knowledge base.\n"
+        "For complex questions that require multiple pieces of information, you should:\n"
+        "1. Break down the question into sub-queries\n"
+        "2. Search for each piece of information\n"
+        "3. Combine the evidence to answer the question\n\n"
+        "When you have gathered enough information, provide your final answer.\n"
+        "Be concise and direct in your final answer."
+    ),
+)
+
+
+@agent.tool
+def search(ctx: RunContext[SingleAgentDeps], query: str, top_k: int = 5) -> str:
+    """Search the knowledge base for relevant passages.
+
+    Args:
+        query: The search query to find relevant passages.
+        top_k: Number of passages to retrieve (default: 5).
+    """
+    with ctx.deps.tracker.track_tool("search", query, top_k) as doc_ids:
+        docs = ctx.deps.retriever.search(query, top_k=top_k)
+        doc_ids.extend([doc.doc_id for doc in docs])
+
+    results = []
+    for i, doc in enumerate(docs, 1):
+        results.append(f"[{i}] {doc.title}: {doc.text}")
+
+    return "\n\n".join(results) if results else "No results found."
 
 
 class SingleAgentAdapter(AbstractAdapter):
-    """Single iterative agent with search tool."""
+    """Single iterative agent with search tool, powered by pydantic-ai."""
 
     def __init__(
         self,
         retriever: Retriever,
         model: str = "gpt-4o-mini",
-        max_iterations: int = 5,
         **kwargs: Any,
     ) -> None:
-        """Initialize single agent adapter.
-
-        Args:
-            retriever: Retriever instance.
-            model: LLM model for the agent.
-            max_iterations: Maximum number of search iterations.
-        """
         super().__init__(retriever, model, **kwargs)
-        self._max_iterations = max_iterations
-        self._client = OpenAI()
 
     @property
     def name(self) -> str:
         return "single_agent"
 
     def generate_system(self, question: str) -> str:
-        """Single agent has no dynamic system generation."""
         return "static: iterative search agent"
 
     def execute(
@@ -76,11 +86,6 @@ class SingleAgentAdapter(AbstractAdapter):
         question: str,
         gold_answer: str,
     ) -> tuple[str, QuestionLog]:
-        """Execute iterative agent loop.
-
-        The agent can call search multiple times to gather evidence,
-        then provides a final answer.
-        """
         tracker = TokenTracker(
             question_id=question_id,
             question=question,
@@ -88,94 +93,30 @@ class SingleAgentAdapter(AbstractAdapter):
         )
 
         try:
-            system_prompt = """You are a helpful assistant that answers questions by searching for relevant information.
+            deps = SingleAgentDeps(retriever=self._retriever, tracker=tracker)
 
-You have access to a search tool that retrieves passages from a knowledge base.
-For complex questions that require multiple pieces of information, you should:
-1. Break down the question into sub-queries
-2. Search for each piece of information
-3. Combine the evidence to answer the question
+            # Build model instance — strip "openai/" prefix if present
+            model_name = self._model
 
-When you have gathered enough information, provide your final answer.
-Be concise and direct in your final answer."""
+            base_url = os.environ.get("OPENAI_BASE_URL")
+            api_key = os.environ.get("OPENAI_API_KEY")
 
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": question},
-            ]
+            provider = OpenAIProvider(base_url=base_url, api_key=api_key)
+            model = OpenAIChatModel(model_name, provider=provider)
 
-            # Iterative tool-calling loop
-            for _ in range(self._max_iterations):
-                with tracker.track_llm(self._model) as stats:
-                    response = self._client.chat.completions.create(
-                        model=self._model,
-                        messages=messages,
-                        tools=[SEARCH_TOOL],
-                        tool_choice="auto",
-                        max_tokens=512,
-                        temperature=0,
-                    )
-                    stats["prompt_tokens"] = response.usage.prompt_tokens
-                    stats["completion_tokens"] = response.usage.completion_tokens
+            result = agent.run_sync(question, model=model, deps=deps)
 
-                assistant_message = response.choices[0].message
-                messages.append(assistant_message.model_dump())
+            answer = result.output
 
-                # Check if agent wants to use tools
-                if not assistant_message.tool_calls:
-                    # No tool calls - agent is done
-                    answer = assistant_message.content or ""
-                    break
-
-                stats["function_calls"] = len(assistant_message.tool_calls)
-
-                # Process each tool call
-                for tool_call in assistant_message.tool_calls:
-                    if tool_call.function.name == "search":
-                        args = json.loads(tool_call.function.arguments)
-                        query = args.get("query", question)
-                        top_k = args.get("top_k", 5)
-
-                        # Execute search
-                        with tracker.track_tool("search", query, top_k) as doc_ids:
-                            docs = self._retriever.search(query, top_k=top_k)
-                            doc_ids.extend([doc.doc_id for doc in docs])
-
-                        # Format results for the agent
-                        results = []
-                        for i, doc in enumerate(docs, 1):
-                            results.append(f"[{i}] {doc.title}: {doc.text}")
-
-                        tool_result = (
-                            "\n\n".join(results) if results else "No results found."
-                        )
-
-                        messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "content": tool_result,
-                            }
-                        )
-            else:
-                # Max iterations reached - force final answer
-                with tracker.track_llm(self._model) as stats:
-                    response = self._client.chat.completions.create(
-                        model=self._model,
-                        messages=messages
-                        + [
-                            {
-                                "role": "user",
-                                "content": "Please provide your final answer now based on the information gathered.",
-                            }
-                        ],
-                        max_tokens=256,
-                        temperature=0,
-                    )
-                    stats["prompt_tokens"] = response.usage.prompt_tokens
-                    stats["completion_tokens"] = response.usage.completion_tokens
-
-                answer = response.choices[0].message.content or ""
+            # Log aggregate LLM usage
+            usage = result.usage()
+            tracker.log_llm_call(
+                model=self._model,
+                prompt_tokens=usage.input_tokens or 0,
+                completion_tokens=usage.output_tokens or 0,
+                latency_ms=0,  # latency captured by tracker._start_time
+                function_calls=usage.tool_calls or 0,
+            )
 
         except Exception as e:
             tracker.set_error(str(e))

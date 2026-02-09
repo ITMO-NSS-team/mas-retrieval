@@ -1,11 +1,11 @@
-"""Build ChromaDB index from the Wikipedia corpus.
+"""Build ChromaDB index from a corpus.
 
 Reads the preprocessed corpus (JSONL), encodes passages with
 BGE-M3 embeddings, and stores in a ChromaDB persistent collection.
 
 Supports per-dataset presets via --dataset flag:
-  hotpotqa → corpus/hotpotqa_paragraphs.jsonl, collection "hotpotqa"
-  musique  → corpus/musique_paragraphs.jsonl,  collection "musique"
+  hotpotqa     → corpus/hotpotqa_paragraphs.jsonl,     collection "hotpotqa"
+  financebench → corpus/financebench_paragraphs.jsonl,  collection "financebench"
 """
 
 from __future__ import annotations
@@ -31,9 +31,9 @@ DATASET_PRESETS = {
         "experiments/data/corpus/hotpotqa_paragraphs.jsonl",
         "hotpotqa",
     ),
-    "musique": (
-        "experiments/data/corpus/musique_paragraphs.jsonl",
-        "musique",
+    "financebench": (
+        "experiments/data/corpus/financebench_paragraphs.jsonl",
+        "financebench",
     ),
 }
 
@@ -129,7 +129,7 @@ def main() -> None:
     parser.add_argument(
         "--dataset",
         type=str,
-        choices=["hotpotqa", "musique"],
+        choices=["hotpotqa", "financebench"],
         default=None,
         help="Dataset preset (sets corpus path and collection name automatically)",
     )

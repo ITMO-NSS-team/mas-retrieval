@@ -8,11 +8,9 @@ benchmarks:
     sample_n: 500
     stratify_by: "type" # bridge / comparison, 250 each
     collection_name: "hotpotqa"
-  musique:
-    split: "validation"
-    sample_n: 500
-    stratify_by: "hop_count" # proportional across 2/3/4 hops
-    collection_name: "musique"
+  financebench:
+    sample_n: 150
+    collection_name: "financebench"
 
 models:
   primary: "gpt-4o-mini"

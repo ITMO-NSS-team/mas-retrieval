@@ -1,7 +1,7 @@
 """Main experiment runner for evaluating MAS auto-generators on retrieval tasks.
 
 Orchestrates:
-1. Loading benchmarks (HotpotQA, MuSiQue)
+1. Loading benchmarks (HotpotQA, FinanceBench)
 2. Initializing retriever with ChromaDB index
 3. Running each system adapter on each benchmark
 4. Computing metrics and saving results
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,13 @@ from retcapslib.adapters.single_agent import SingleAgentAdapter
 from retcapslib.evaluation.metrics import evaluate_question
 from retcapslib.logging.schemas import QuestionLog, SystemResults
 from retcapslib.retriever.core import Retriever, init_retriever
+
+def _slugify(text: str) -> str:
+    """Lowercase text and replace non-alphanumeric characters with underscores."""
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9]+", "_", text)
+    return text.strip("_")
+
 
 # Registry of available adapters
 ADAPTERS: dict[str, type[AbstractAdapter]] = {
@@ -62,8 +70,8 @@ def load_benchmark(
 
     if benchmark_name == "hotpotqa":
         filepath = data_dir / "hotpotqa_sample.jsonl"
-    elif benchmark_name == "musique":
-        filepath = data_dir / "musique_sample.jsonl"
+    elif benchmark_name == "financebench":
+        filepath = data_dir / "financebench_sample.jsonl"
     else:
         raise ValueError(f"Unknown benchmark: {benchmark_name}")
 
@@ -119,11 +127,20 @@ def extract_gold_paragraphs(question: dict[str, Any]) -> list[str]:
     if "supporting_facts" in question:
         return list(set(question["supporting_facts"]["titles"]))
 
-    # MuSiQue format - paragraphs field contains supporting docs
-    if "paragraphs" in question:
-        return [
-            p.get("title", "") for p in question["paragraphs"] if p.get("is_supporting")
-        ]
+    # FinanceBench format - evidence field contains supporting pages
+    if "evidence" in question:
+        evidence_list = question["evidence"]
+        if not isinstance(evidence_list, list):
+            evidence_list = [evidence_list]
+        ids = []
+        for ev in evidence_list:
+            if not isinstance(ev, dict):
+                continue
+            doc_name = ev.get("doc_name", question.get("doc_name", ""))
+            page_num = ev.get("evidence_page_num")
+            if doc_name and page_num is not None:
+                ids.append(f"{_slugify(doc_name)}_p{page_num}")
+        return ids
 
     return []
 

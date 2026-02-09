@@ -1,8 +1,8 @@
-"""Download and preprocess HotpotQA and MuSiQue benchmarks.
+"""Download and preprocess HotpotQA and FinanceBench benchmarks.
 
-Creates stratified samples for evaluation:
+Creates samples for evaluation:
 - HotpotQA: 500 questions stratified by type (bridge/comparison)
-- MuSiQue: 500 questions stratified by hop_count (2/3/4)
+- FinanceBench: 150 financial QA examples from SEC filings (full dataset)
 """
 
 from __future__ import annotations
@@ -82,86 +82,48 @@ def download_hotpotqa(
     print("HotpotQA download complete!")
 
 
-def download_musique(
-    output_dir: str | Path,
-    sample_n: int = 500,
-    seed: int = 42,
-) -> None:
-    """Download MuSiQue and create stratified sample by hop count.
+def download_financebench(output_dir: str | Path) -> None:
+    """Download FinanceBench dataset (all 150 examples).
+
+    FinanceBench contains 150 financial QA examples with evidence from
+    SEC filings (10-K, 10-Q reports).
 
     Args:
         output_dir: Directory to save processed benchmark.
-        sample_n: Total number of questions to sample.
-        seed: Random seed for reproducibility.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Loading MuSiQue validation set...")
-    ds = load_dataset("dgslibisey/MuSiQue", split="validation")
+    print("Loading FinanceBench dataset...")
+    ds = load_dataset("PatronusAI/financebench", split="train")
 
-    # Group by hop count
-    by_hops: dict[int, list] = {}
-    for ex in ds:
-        # MuSiQue has n_hops field indicating reasoning depth
-        n_hops = len(ex["question_decomposition"])
-        if n_hops not in by_hops:
-            by_hops[n_hops] = []
-        by_hops[n_hops].append(ex)
-
-    print(f"Total questions: {len(ds)}")
-    for hops, questions in sorted(by_hops.items()):
-        print(f"  {hops}-hop: {len(questions)}")
-
-    # Stratified sampling proportional to original distribution
-    import random
-
-    random.seed(seed)
-
-    total = sum(len(q) for q in by_hops.values())
-    sampled = []
-
-    for hops, questions in by_hops.items():
-        # Proportional allocation
-        n_sample = int(sample_n * len(questions) / total)
-        n_sample = max(1, min(n_sample, len(questions)))
-        sampled.extend(random.sample(questions, n_sample))
-
-    # If we have fewer than target, sample more from largest group
-    while len(sampled) < sample_n:
-        largest_hops = max(by_hops.keys(), key=lambda h: len(by_hops[h]))
-        remaining = [q for q in by_hops[largest_hops] if q not in sampled]
-        if remaining:
-            sampled.append(random.choice(remaining))
-        else:
-            break
-
-    random.shuffle(sampled)
-    sampled = sampled[:sample_n]
+    print(f"Total examples: {len(ds)}")
 
     # Convert to standard format
     processed = []
-    for ex in sampled:
+    for ex in ds:
         processed.append(
             {
-                "id": ex["id"],
+                "id": ex["financebench_id"],
                 "question": ex["question"],
                 "answer": ex["answer"],
-                "answer_aliases": ex.get("answer_aliases", []),
-                "hop_count": len(ex["question_decomposition"]),
-                "question_decomposition": ex["question_decomposition"],
-                "paragraphs": ex.get("paragraphs", []),
+                "evidence": ex["evidence"],
+                "company": ex.get("company"),
+                "doc_name": ex.get("doc_name"),
+                "question_type": ex.get("question_type"),
+                "question_reasoning": ex.get("question_reasoning"),
+                "justification": ex.get("justification"),
             }
         )
 
     # Save
-    output_file = output_dir / "musique_sample.jsonl"
+    output_file = output_dir / "financebench_sample.jsonl"
     print(f"Saving {len(processed)} questions to: {output_file}")
     with open(output_file, "w") as f:
         for item in processed:
             f.write(json.dumps(item) + "\n")
 
-    print("MuSiQue download complete!")
+    print("FinanceBench download complete!")
 
 
 def main() -> None:
@@ -177,7 +139,7 @@ def main() -> None:
         "--sample-n",
         type=int,
         default=500,
-        help="Number of questions per benchmark",
+        help="Number of questions per benchmark (HotpotQA only)",
     )
     parser.add_argument(
         "--seed",
@@ -188,7 +150,7 @@ def main() -> None:
     parser.add_argument(
         "--benchmark",
         type=str,
-        choices=["hotpotqa", "musique", "all"],
+        choices=["hotpotqa", "financebench", "all"],
         default="all",
         help="Which benchmark to download",
     )
@@ -198,8 +160,8 @@ def main() -> None:
     if args.benchmark in ("hotpotqa", "all"):
         download_hotpotqa(args.output_dir, args.sample_n, args.seed)
 
-    if args.benchmark in ("musique", "all"):
-        download_musique(args.output_dir, args.sample_n, args.seed)
+    if args.benchmark in ("financebench", "all"):
+        download_financebench(args.output_dir)
 
 
 if __name__ == "__main__":

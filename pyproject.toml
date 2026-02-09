@@ -24,6 +24,8 @@ dependencies = [
     "openai>=2.16.0",
     "FlagEmbedding>=1.3.0",
     "pydotenv>=0.0.7",
+    "pydantic-ai>=1.56.0",
+    "pydantic-evals>=1.56.0",
 ]
 
 [project.optional-dependencies]
@@ -33,9 +35,3 @@ dev = [
     "ruff",
     "mypy",
 ]
-
-[project.scripts]
-build-index = "retcapslib.retriever.index_builder:main"
-download-benchmarks = "retcapslib.data.download_benchmarks:main"
-prepare-corpus = "retcapslib.data.prepare_corpus:main"
-run-experiment = "retcapslib.runners.run_experiment:main"
