@@ -1,7 +1,5 @@
 ## Zero-Shot Multi-Agent Generation for Specialized RAG Workflows: An Empirical Evaluation
 
----
-
 This repo contains code for preparing data and evaluating auto-generated multi-agent systems on retrieval tasks.
 Before running, ensure that you have enough vRAM for the BGE-M3 embedder (~3-4 GB).
 You must set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `GITHUB_TOKEN` in the `.env` file.
