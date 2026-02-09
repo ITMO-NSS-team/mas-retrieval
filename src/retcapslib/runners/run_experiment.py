@@ -172,49 +172,63 @@ def run_system_on_benchmark(
     question_logs: list[QuestionLog] = []
 
     for q in tqdm(questions, desc=f"{adapter.name}/{benchmark_name}"):
-        question_id = q["id"]
-        question_text = q["question"]
-        gold_answer = q["answer"]
-
-        # Execute the adapter
-        predicted_answer, log = adapter.execute(
-            question_id=question_id,
-            question=question_text,
-            gold_answer=gold_answer,
-        )
-
-        # Evaluate answer quality
-        gold_paragraphs = extract_gold_paragraphs(q)
-        retrieved_doc_ids = [tc.results for tc in log.tool_calls]
-        all_retrieved = [doc_id for doc_ids in retrieved_doc_ids for doc_id in doc_ids]
-
-        metrics = evaluate_question(
-            predicted_answer=predicted_answer,
-            gold_answer=gold_answer,
-            retrieved_doc_ids=all_retrieved,
-            gold_paragraphs=gold_paragraphs,
-        )
-
-        # Update log with metrics
-        log.exact_match = metrics["exact_match"]
-        log.f1_score = metrics["f1"]
-        log.context_recall = metrics.get("context_recall")
-
-        # LLM-as-a-judge accuracy
         try:
-            log.llm_accuracy = llm_accuracy(
+            question_id = q.get("id", "unknown")
+            question_text = q.get("question", "")
+            gold_answer = q.get("answer", "")
+
+            # Execute the adapter
+            predicted_answer, log = adapter.execute(
+                question_id=question_id,
                 question=question_text,
-                predicted=predicted_answer,
-                gold=gold_answer,
-                model_name=model,
+                gold_answer=gold_answer,
             )
+
+            # Evaluate answer quality
+            gold_paragraphs = extract_gold_paragraphs(q)
+            retrieved_doc_ids = [tc.results for tc in log.tool_calls]
+            all_retrieved = [doc_id for doc_ids in retrieved_doc_ids for doc_id in doc_ids]
+
+            metrics = evaluate_question(
+                predicted_answer=predicted_answer,
+                gold_answer=gold_answer,
+                retrieved_doc_ids=all_retrieved,
+                gold_paragraphs=gold_paragraphs,
+            )
+
+            # Update log with metrics
+            log.exact_match = metrics["exact_match"]
+            log.f1_score = metrics["f1"]
+            log.context_recall = metrics.get("context_recall")
+
+            # LLM-as-a-judge accuracy
+            try:
+                log.llm_accuracy = llm_accuracy(
+                    question=question_text,
+                    predicted=predicted_answer,
+                    gold=gold_answer,
+                    model_name=model,
+                )
+            except Exception as e:
+                print(f"  LLM judge failed for {question_id}: {e}")
+                log.llm_accuracy = None
+
+            question_logs.append(log)
+
+            if log.error:
+                results.failed_questions += 1
+
         except Exception as e:
-            print(f"  LLM judge failed for {question_id}: {e}")
-            log.llm_accuracy = None
-
-        question_logs.append(log)
-
-        if log.error:
+            q_id = q.get("id", "unknown") if isinstance(q, dict) else "unknown"
+            print(f"  FAILED question {q_id}: {e}")
+            error_log = QuestionLog(
+                question_id=q_id,
+                question=q.get("question", "") if isinstance(q, dict) else "",
+                gold_answer=q.get("answer", "") if isinstance(q, dict) else "",
+                predicted_answer="",
+                error=str(e),
+            )
+            question_logs.append(error_log)
             results.failed_questions += 1
 
     # Compute aggregate metrics
@@ -328,51 +342,56 @@ def run_experiment(config_path: str | Path) -> None:
     all_results: list[SystemResults] = []
 
     for system_name in config["systems"]:
-        if system_name not in ADAPTERS:
-            print(f"Skipping unknown system: {system_name}")
+        try:
+            if system_name not in ADAPTERS:
+                print(f"Skipping unknown system: {system_name}")
+                continue
+
+            print(f"\n{'=' * 40}")
+            print(f"System: {system_name}")
+            print("=" * 40)
+
+            adapter = load_adapter(system_name, retriever, model)
+
+            for benchmark_name, benchmark_cfg in config["benchmarks"].items():
+                print(f"\nBenchmark: {benchmark_name}")
+
+                # Switch to the benchmark-specific collection
+                collection_name = benchmark_cfg.get("collection_name", "wikipedia")
+                retriever.set_collection(collection_name)
+                print(
+                    f"  Collection: {collection_name} ({retriever._collection.count()} docs)"
+                )
+
+                questions = load_benchmark(benchmark_name, config)
+                print(f"  Loaded {len(questions)} questions")
+
+                results = run_system_on_benchmark(
+                    adapter=adapter,
+                    questions=questions,
+                    benchmark_name=benchmark_name,
+                    model=model,
+                )
+
+                # Print summary
+                print(f"\n  Results for {system_name}/{benchmark_name}:")
+                print(f"    EM:  {results.avg_exact_match:.3f}")
+                print(f"    F1:  {results.avg_f1:.3f}")
+                print(f"    ACC: {results.avg_llm_accuracy:.3f}")
+                print(f"    CR:  {results.avg_context_recall:.3f}")
+                print(
+                    f"    Tokens/Q: {results.avg_tokens_per_question:.0f}"
+                    f" (in: {results.avg_prompt_tokens_per_question:.0f},"
+                    f" out: {results.avg_completion_tokens_per_question:.0f})"
+                )
+                print(f"    Latency/Q: {results.avg_latency_ms:.0f}ms")
+
+                save_results(results, results_dir)
+                all_results.append(results)
+
+        except Exception as e:
+            print(f"\nFATAL: System '{system_name}' failed: {e}")
             continue
-
-        print(f"\n{'=' * 40}")
-        print(f"System: {system_name}")
-        print("=" * 40)
-
-        adapter = load_adapter(system_name, retriever, model)
-
-        for benchmark_name, benchmark_cfg in config["benchmarks"].items():
-            print(f"\nBenchmark: {benchmark_name}")
-
-            # Switch to the benchmark-specific collection
-            collection_name = benchmark_cfg.get("collection_name", "wikipedia")
-            retriever.set_collection(collection_name)
-            print(
-                f"  Collection: {collection_name} ({retriever._collection.count()} docs)"
-            )
-
-            questions = load_benchmark(benchmark_name, config)
-            print(f"  Loaded {len(questions)} questions")
-
-            results = run_system_on_benchmark(
-                adapter=adapter,
-                questions=questions,
-                benchmark_name=benchmark_name,
-                model=model,
-            )
-
-            # Print summary
-            print(f"\n  Results for {system_name}/{benchmark_name}:")
-            print(f"    EM:  {results.avg_exact_match:.3f}")
-            print(f"    F1:  {results.avg_f1:.3f}")
-            print(f"    ACC: {results.avg_llm_accuracy:.3f}")
-            print(f"    CR:  {results.avg_context_recall:.3f}")
-            print(
-                f"    Tokens/Q: {results.avg_tokens_per_question:.0f}"
-                f" (in: {results.avg_prompt_tokens_per_question:.0f},"
-                f" out: {results.avg_completion_tokens_per_question:.0f})"
-            )
-            print(f"    Latency/Q: {results.avg_latency_ms:.0f}ms")
-
-            save_results(results, results_dir)
-            all_results.append(results)
 
     # Print final summary
     print("\n" + "=" * 60)
