@@ -1,7 +1,7 @@
 """Unified retrieval infrastructure for all systems.
 
 Provides dense retrieval over a shared Wikipedia corpus using
-Jina embeddings v4 + ChromaDB, with Jina reranker v3 for re-ranking.
+BGE-M3 embeddings + ChromaDB, with BGE reranker for re-ranking.
 """
 
 from retcapslib.retriever.core import (
@@ -14,13 +14,13 @@ from retcapslib.retriever.core import (
     search,
 )
 from retcapslib.retriever.embedder import BGEM3Embedder
-from retcapslib.retriever.reranker import JinaReranker
+from retcapslib.retriever.reranker import BGEReranker
 
 __all__ = [
     "Document",
     "Retriever",
     "BGEM3Embedder",
-    "JinaReranker",
+    "BGEReranker",
     "init_retriever",
     "get_retriever",
     "retrieve",

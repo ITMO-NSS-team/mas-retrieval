@@ -2,7 +2,7 @@
 
 Canonical functions:
 - retrieve(query, top_k) -> dense ChromaDB search
-- rerank(query, docs, top_k) -> Jina reranker v3 re-scoring
+- rerank(query, docs, top_k) -> BGE reranker re-scoring
 - search(query, top_k, rerank) -> retrieve + optional rerank (default pipeline)
 """
 
@@ -16,7 +16,7 @@ import chromadb
 import numpy as np
 
 from retcapslib.retriever.embedder import BGEM3Embedder
-from retcapslib.retriever.reranker import JinaReranker
+from retcapslib.retriever.reranker import BGEReranker
 
 
 @dataclass
@@ -38,7 +38,7 @@ class Retriever:
         Args:
             config: Retriever section from config.yaml with keys:
                 - embedder: model name for BGEM3Embedder
-                - reranker: model name for JinaReranker
+                - reranker: model name for BGEReranker
                 - index_path: path to ChromaDB persistent storage directory
                 - collection_name: ChromaDB collection name (default "wikipedia")
                 - retrieve_top_k: default candidates for retrieval (default 20)
@@ -51,8 +51,8 @@ class Retriever:
         self._embedder = BGEM3Embedder(model_name=embedder_model)
 
         # Initialize reranker
-        reranker_model = config.get("reranker", "jinaai/jina-reranker-v3")
-        self._reranker = JinaReranker(model_name=reranker_model)
+        reranker_model = config.get("reranker", "BAAI/bge-reranker-v2-m3")
+        self._reranker = BGEReranker(model_name=reranker_model)
 
         # Initialize ChromaDB client and get collection
         # Each dataset gets its own subdirectory under the base index_path
@@ -143,7 +143,7 @@ class Retriever:
     def rerank(
         self, query: str, docs: list[Document], top_k: int | None = None
     ) -> list[Document]:
-        """Re-rank documents using Jina reranker v3.
+        """Re-rank documents using BGE reranker.
 
         Args:
             query: Original query for relevance scoring.

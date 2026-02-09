@@ -68,7 +68,7 @@ class CGMASAdapter(AbstractAdapter):
         os.environ["RETCAP_INDEX_PATH"] = str(cfg["index_path"])
         os.environ["RETCAP_COLLECTION"] = self._retriever._collection_name
         os.environ["RETCAP_EMBEDDER"] = str(cfg.get("embedder", "BAAI/bge-m3"))
-        os.environ["RETCAP_RERANKER"] = str(cfg.get("reranker", "jinaai/jina-reranker-v3"))
+        os.environ["RETCAP_RERANKER"] = str(cfg.get("reranker", "BAAI/bge-reranker-v2-m3"))
 
     def _set_llm_env(self) -> None:
         """Set env vars for FEDOT.MAS LLM configuration."""

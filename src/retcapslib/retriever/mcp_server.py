@@ -86,7 +86,7 @@ if __name__ == "__main__":
     # In practice, this would be loaded from config.yaml
     config = {
         "embedder": "BAAI/bge-m3",
-        "reranker": "jinaai/jina-reranker-v3",
+        "reranker": "BAAI/bge-reranker-v2-m3",
         "index_path": "experiments/data/index/",
         "corpus_path": "experiments/data/corpus/wiki_paragraphs.jsonl",
     }

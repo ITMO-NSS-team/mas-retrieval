@@ -25,7 +25,7 @@ def _get_retriever() -> Retriever:
     if _retriever is None:
         config = {
             "embedder": os.environ.get("RETCAP_EMBEDDER", "BAAI/bge-m3"),
-            "reranker": os.environ.get("RETCAP_RERANKER", "jinaai/jina-reranker-v3"),
+            "reranker": os.environ.get("RETCAP_RERANKER", "BAAI/bge-reranker-v2-m3"),
             "index_path": os.environ["RETCAP_INDEX_PATH"],
             "collection_name": os.environ.get("RETCAP_COLLECTION", "financebench"),
         }
