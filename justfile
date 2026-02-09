@@ -1,7 +1,5 @@
-# MAS Retrieval — experiment pipeline commands
-
 # Download benchmarks
-download: download-hotpotqa download-financebench
+download: download-hotpotqa download-financebench download-financebench-pdfs
 
 download-hotpotqa:
     uv run download-benchmarks --benchmark hotpotqa
@@ -36,6 +34,3 @@ test-hotpot:
 
 test-financebench:
     uv run run-experiment --config src/retcapslib/cfg_test_financebench.yaml
-
-# Full pipelines
-pipeline-financebench: download-financebench download-financebench-pdfs prepare-financebench index-financebench test-financebench

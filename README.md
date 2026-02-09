@@ -1,35 +1,55 @@
-## Evaluating Auto-Generated Multi-Agent Systems on Retrieval Tasks
+## Zero-Shot Multi-Agent Generation for Specialized RAG Workflows: An Empirical Evaluation
+
+---
 
 This repo contains code for preparing data and evaluating auto-generated multi-agent systems on retrieval tasks.
-Before you need to ensure that you have enought of vRAM.
-You must set to `.env` file `OPENAI_API_KEY` and `OPENAI_BASE_URL`.
+Before running, ensure that you have enough vRAM for the BGE-M3 embedder (~3-4 GB).
+You must set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `GITHUB_TOKEN` in the `.env` file.
 
-0. Setup python environment:
+### Setup
 
 ```bash
 uv sync
 ```
 
-1. Download benchmarks
+### Pipeline overview
+
+The pipeline consists of four stages: download benchmarks, prepare corpus, build index, run experiment.
+
+#### HotpotQA
 
 ```bash
-download-benchmarks
+just download-hotpotqa        # Download 500 questions from HuggingFace
+just prepare-hotpotqa          # Extract ~500K Wikipedia paragraphs
+just index-hotpotqa            # Build ChromaDB index with BGE-M3
+just test-hotpot               # Run experiment
 ```
 
-2. Prepare corpuses for HotpotQA and MuSiQue:
+#### FinanceBench
 
 ```bash
-prepare-corpus
+just download-financebench       # Download 150 questions from HuggingFace
+just download-financebench-pdfs  # Download ~75 SEC filing PDFs from GitHub
+just prepare-financebench        # Extract text from all PDF pages via PyMuPDF
+just index-financebench          # Build ChromaDB index with BGE-M3
+just test-financebench           # Run experiment
 ```
 
-3. Index HotpotQA and MuSiQue via BAAI/bge-m3 embedder:
+Or run the full FinanceBench pipeline in one command:
 
 ```bash
-build-index --dataset hotpotqa --batch-size 32
+just pipeline-financebench
 ```
 
-4. To run experiment setup configuration in the `config.yaml` (default path is `./src/retcapslib/config_test.yaml`):
+### Configuration
+
+Experiment configuration files are in `src/retcapslib/`:
+
+- `cfg_test_hotpot.yaml` — HotpotQA experiment config
+- `cfg_test_financebench.yaml` — FinanceBench experiment config
+
+To run with a custom config:
 
 ```bash
-run-experiment
+uv run run-experiment --config path/to/config.yaml
 ```

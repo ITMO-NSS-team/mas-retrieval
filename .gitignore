@@ -8,11 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
-FEDOT.MAS
-AFlow
-MAS-GPT
-ADAS
-AutoAgents
 experiments
 
 uv.lock

@@ -25,8 +25,8 @@ execution:
 systems:
   - naive_rag
   - single_agent
-  - swarm_agentic
-  - cg_mas
+  # - swarm_agentic
+  # - cg_mas
 
 output:
   results_dir: "results/"
