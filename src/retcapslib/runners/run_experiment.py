@@ -20,7 +20,7 @@ import yaml
 from tqdm import tqdm
 
 from retcapslib.adapters.base import AbstractAdapter
-from retcapslib.adapters.cg_mas import CGMASAdapter
+from retcapslib.adapters.automas import AutoMASAdapter
 from retcapslib.adapters.naive_rag import NaiveRAGAdapter
 from retcapslib.adapters.single_agent import SingleAgentAdapter
 from retcapslib.adapters.swarm_agentic import SwarmAgenticAdapter
@@ -28,6 +28,7 @@ from retcapslib.evaluation.llm_judge import llm_accuracy
 from retcapslib.evaluation.metrics import evaluate_question
 from retcapslib.logging.schemas import QuestionLog, SystemResults
 from retcapslib.retriever.core import Retriever, init_retriever
+
 
 def _slugify(text: str) -> str:
     """Lowercase text and replace non-alphanumeric characters with underscores."""
@@ -41,7 +42,7 @@ ADAPTERS: dict[str, type[AbstractAdapter]] = {
     "naive_rag": NaiveRAGAdapter,
     "single_agent": SingleAgentAdapter,
     "swarm_agentic": SwarmAgenticAdapter,
-    "cg_mas": CGMASAdapter,
+    "automas": AutoMASAdapter,
 }
 
 
@@ -187,7 +188,9 @@ def run_system_on_benchmark(
             # Evaluate answer quality
             gold_paragraphs = extract_gold_paragraphs(q)
             retrieved_doc_ids = [tc.results for tc in log.tool_calls]
-            all_retrieved = [doc_id for doc_ids in retrieved_doc_ids for doc_id in doc_ids]
+            all_retrieved = [
+                doc_id for doc_ids in retrieved_doc_ids for doc_id in doc_ids
+            ]
 
             metrics = evaluate_question(
                 predicted_answer=predicted_answer,
@@ -418,7 +421,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=str,
-        default="src/retcapslib/cfg_test_hotpot.yaml",
+        default="src/retcapslib/cfg_test_financebench.yaml",
         help="Path to experiment config",
     )
 

@@ -1,6 +1,6 @@
 """FastMCP wrapper for the retrieval API.
 
-Used exclusively by CG-MAS (FEDOT.MAS), which discovers tools via MCP.
+Used exclusively by AutoMAS, which discovers tools via MCP.
 Other systems use the Python retriever functions directly.
 """
 
@@ -38,11 +38,11 @@ def create_retrieval_mcp_server() -> FastMCP:
 
     Returns:
         A FastMCP server instance ready to be registered in
-        FEDOT.MAS's MCP registry.
+        AutoMAS's MCP registry.
 
     Integration point:
-        Register in FEDOT.MAS/src/fedotmas/mcp/registry.py
-        alongside existing Tavily and browser MCP servers.
+        Register in automas/src/automas/mcp/registry.py
+        alongside existing MCP servers.
     """
     mcp = FastMCP("retrieval")
 

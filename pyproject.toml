@@ -40,5 +40,5 @@ swarm = [
     "langchain-openai>=0.3.0",
     "langchain-core>=0.3.0",
 ]
-## cgmas: install separately from local source:
-##   uv pip install -e
+## automas: install separately from local source:
+##   uv pip install -e automas-research/

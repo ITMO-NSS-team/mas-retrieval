@@ -28,7 +28,7 @@ systems:
   - naive_rag
   - single_agent
   - swarm_agentic
-  - cg_mas
+  - automas
 
 output:
   results_dir: "results/"

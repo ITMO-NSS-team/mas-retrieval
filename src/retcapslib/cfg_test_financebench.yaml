@@ -3,7 +3,7 @@ experiment:
 
 benchmarks:
   financebench:
-    sample_n: 10
+    sample_n: 150
     collection_name: "financebench"
 
 models:
@@ -17,10 +17,10 @@ retriever:
   index_path: "experiments/data/chroma_index/"
 
 systems:
-  - naive_rag
-  - single_agent
+  # - naive_rag
+  # - single_agent
   # - swarm_agentic
-  # - cg_mas
+  - automas
 
 output:
   results_dir: "results/"

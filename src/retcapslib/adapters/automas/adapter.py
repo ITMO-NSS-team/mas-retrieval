@@ -1,10 +1,9 @@
-"""CG-MAS adapter: FEDOT.MAS code-generation framework with our retrieval tools.
+"""AutoMAS adapter: auto-generated multi-agent pipeline with our retrieval tools.
 
-Uses FEDOT.MAS GraphMASFramework as a library. For each question:
-1. Meta-agent plans a workflow graph with MCP tools
-2. Coder-agent generates Python code (async run_workflow())
-3. Validator executes code, with debug loop on errors
-4. Returns final answer
+Uses AutoMAS as a library. For each question:
+1. PoolGenerator meta-agent creates an agent pool from MCP tool descriptions
+2. GraphGenerator meta-agent builds a DAG connecting agents
+3. Pipeline executes the DAG and returns the answer
 
 MCP registry is monkey-patched to expose only our retrieval + calculator tools.
 """
@@ -22,22 +21,22 @@ from retcapslib.logging.schemas import QuestionLog
 from retcapslib.logging.tracker import TokenTracker
 
 
-class CGMASAdapter(AbstractAdapter):
-    """CG-MAS adapter: FEDOT.MAS code-generation framework with our retrieval tools."""
+class AutoMASAdapter(AbstractAdapter):
+    """AutoMAS adapter: auto-generated multi-agent pipeline with our retrieval tools."""
 
     def __init__(self, retriever: Any, model: str = "gpt-4o-mini", **kwargs: Any) -> None:
         super().__init__(retriever, model, **kwargs)
-        self._framework: Any = None
+        self._automas: Any = None
 
     @property
     def name(self) -> str:
-        return "cg_mas"
+        return "automas"
 
     def _setup_mcp_registry(self) -> None:
-        """Replace FEDOT.MAS MCP servers with our retrieval+calculator server."""
-        import fedotmas.mcp.external_descriptions as ext_desc
-        import fedotmas.mcp.registry as reg
-        from fedotmas.mcp.server_config import MCPServerConfig
+        """Replace AutoMAS MCP servers with our retrieval+calculator server."""
+        import automas.mcp.external_descriptions as ext_desc
+        import automas.mcp.registry as reg
+        from automas.mcp.server_config import MCPServerConfig
 
         server_script = str(Path(__file__).parent / "mcp_retrieval_server.py")
 
@@ -71,30 +70,28 @@ class CGMASAdapter(AbstractAdapter):
         os.environ["RETCAP_RERANKER"] = str(cfg.get("reranker", "BAAI/bge-reranker-v2-m3"))
 
     def _set_llm_env(self) -> None:
-        """Set env vars for FEDOT.MAS LLM configuration."""
-        os.environ.setdefault("PLANNER_LLM_MODEL", self._model)
-        os.environ.setdefault("CODER_LLM_MODEL", self._model)
-        os.environ.setdefault("DEBUG_LLM_MODEL", self._model)
-        os.environ.setdefault("SUPERVISOR_LLM_MODEL", self._model)
+        """Set env vars for AutoMAS LLM configuration."""
+        model = self._model
+        # AutoMAS uses OpenRouter format (e.g., "openai/gpt-4o-mini")
+        if "/" not in model:
+            model = f"openai/{model}"
+        os.environ.setdefault("AGENT_NODE_MODEL", model)
+        os.environ.setdefault("DEFAULT_META_MODEL", model)
 
     def _init_framework(self) -> None:
-        if self._framework is not None:
+        if self._automas is not None:
             return
 
         self._set_llm_env()
         self._set_retriever_env()
         self._setup_mcp_registry()
 
-        from fedotmas.graph_framework import GraphMASFramework
+        from automas.main import AutoMAS
 
-        self._framework = GraphMASFramework(
-            max_execution_cycles=3,
-            emit_anyway=True,
-            track_timing=True,
-        )
+        self._automas = AutoMAS()
 
     def generate_system(self, question: str) -> str:
-        return "FEDOT.MAS code-generation framework (per-question)"
+        return "AutoMAS auto-generated multi-agent pipeline (per-question)"
 
     def execute(
         self,
@@ -116,30 +113,19 @@ class CGMASAdapter(AbstractAdapter):
             docids_file.unlink()
         os.environ["RETCAP_DOCIDS_FILE"] = str(docids_file)
 
-        # Set output dir for generated code
-        output_dir = Path(f"generated_cg_mas/{question_id}")
-        from fedotmas.agents.code_emitter import GraphEmitterAgentConfig
-
-        self._framework.emitter_agent.config = GraphEmitterAgentConfig(
-            output_dir=output_dir,
-        )
-
-        # Snapshot FEDOT.MAS LLM usage before
-        from fedotmas.llm import get_total_llm_usage
-
-        usage_before = get_total_llm_usage()
-
         try:
-            result = self._framework.run(user_request=question, emit_anyway=True)
+            result = self._automas.run(query=question)
 
             answer = self._extract_answer(result)
 
-            # Log LLM call (FEDOT.MAS tracks cost in USD, not individual tokens)
-            _ = get_total_llm_usage() - usage_before  # cost delta in USD
+            # Log LLM usage from pipeline execution
+            pipeline = self._automas.pipeline
+            prompt_tokens = getattr(pipeline, "input_tokens", 0) or 0
+            completion_tokens = getattr(pipeline, "output_tokens", 0) or 0
             tracker.log_llm_call(
                 model=self._model,
-                prompt_tokens=0,
-                completion_tokens=0,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
                 latency_ms=0,
                 function_calls=0,
             )
@@ -159,19 +145,13 @@ class CGMASAdapter(AbstractAdapter):
 
     @staticmethod
     def _extract_answer(result: dict[str, Any]) -> str:
-        """Extract final answer from FEDOT.MAS result dict."""
-        final_response = result.get("final_response")
-        if final_response is None:
+        """Extract final answer from AutoMAS result dict."""
+        if result is None:
             return ""
-        if isinstance(final_response, dict):
-            answer = final_response.get("final_answer")
-            if answer is not None:
-                return str(answer).strip()
-            for v in final_response.values():
-                if isinstance(v, str) and v.strip():
-                    return v.strip()
-            return str(final_response)
-        return str(final_response).strip()
+        answer = result.get("answer")
+        if answer is not None:
+            return str(answer).strip()
+        return str(result)
 
     @staticmethod
     def _log_tool_calls(tracker: TokenTracker, docids_file: Path) -> None:

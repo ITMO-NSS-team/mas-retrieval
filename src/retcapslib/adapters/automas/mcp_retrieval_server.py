@@ -1,6 +1,6 @@
-"""MCP server providing retrieval and calculator tools for CG-MAS.
+"""MCP server providing retrieval and calculator tools for AutoMAS.
 
-Runs as a subprocess spawned by FEDOT.MAS via MCPServerStdio.
+Runs as a subprocess spawned by AutoMAS via MCPServerStdio.
 Reads retriever config from environment variables.
 Writes doc_ids to RETCAP_DOCIDS_FILE for tracking.
 """
