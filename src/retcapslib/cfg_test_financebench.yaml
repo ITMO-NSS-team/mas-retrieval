@@ -1,6 +1,5 @@
 experiment:
   seed: 42
-  samples_per_benchmark: 10
 
 benchmarks:
   financebench:
@@ -30,4 +29,3 @@ systems:
 
 output:
   results_dir: "results/"
-  logs_dir: "logs/"

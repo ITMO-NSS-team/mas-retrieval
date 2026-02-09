@@ -1,6 +1,5 @@
 experiment:
   seed: 42
-  samples_per_benchmark: 500
 
 benchmarks:
   hotpotqa:
@@ -33,11 +32,8 @@ execution:
 systems:
   - naive_rag
   - single_agent
-  - autoagents
-  - masgpt
-  - adas
-  - cgmas
+  - swarm_agentic
+  - cg_mas
 
 output:
   results_dir: "results/"
-  logs_dir: "logs/"
