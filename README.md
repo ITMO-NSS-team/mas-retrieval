@@ -4,9 +4,9 @@ This repo contains code for preparing data and evaluating auto-generated multi-a
 Before running, ensure that you have enough vRAM for the BGE-M3 embedder (~3-4 GB).
 You must set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `GITHUB_TOKEN` in the `.env` file.
 
-### Setup
+### Setup Python environment
 
-`uv` only:
+Only Unix-like systems are supported. In this project, `uv` will work well:
 
 ```bash
 uv sync
