@@ -27,11 +27,3 @@ dependencies = [
     "pydantic-ai>=1.56.0",
     "pydantic-evals>=1.56.0",
 ]
-
-[project.optional-dependencies]
-dev = [
-    "pytest",
-    "pytest-cov",
-    "ruff",
-    "mypy",
-]
