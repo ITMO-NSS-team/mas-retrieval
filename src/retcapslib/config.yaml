@@ -24,11 +24,6 @@ retriever:
   rerank_top_k: 10
   index_path: "experiments/data/chroma_index/"
 
-execution:
-  timeout_per_question_s: 300
-  max_tool_calls: 20
-  max_retries_on_error: 1
-
 systems:
   - naive_rag
   - single_agent

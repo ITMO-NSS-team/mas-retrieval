@@ -150,7 +150,6 @@ def run_system_on_benchmark(
     questions: list[dict[str, Any]],
     benchmark_name: str,
     model: str,
-    timeout_s: int = 300,
 ) -> SystemResults:
     """Run a system adapter on a benchmark dataset.
 
@@ -159,7 +158,6 @@ def run_system_on_benchmark(
         questions: List of question dictionaries.
         benchmark_name: Name of the benchmark.
         model: LLM model being used.
-        timeout_s: Timeout per question in seconds.
 
     Returns:
         SystemResults with all question logs and aggregate metrics.
@@ -327,8 +325,6 @@ def run_experiment(config_path: str | Path) -> None:
 
     # Run each system on each benchmark
     model = config["models"]["primary"]
-    timeout_s = config["execution"]["timeout_per_question_s"]
-
     all_results: list[SystemResults] = []
 
     for system_name in config["systems"]:
@@ -360,7 +356,6 @@ def run_experiment(config_path: str | Path) -> None:
                 questions=questions,
                 benchmark_name=benchmark_name,
                 model=model,
-                timeout_s=timeout_s,
             )
 
             # Print summary
