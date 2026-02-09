@@ -20,6 +20,7 @@ import yaml
 from tqdm import tqdm
 
 from retcapslib.adapters.base import AbstractAdapter
+from retcapslib.adapters.cg_mas import CGMASAdapter
 from retcapslib.adapters.naive_rag import NaiveRAGAdapter
 from retcapslib.adapters.single_agent import SingleAgentAdapter
 from retcapslib.adapters.swarm_agentic import SwarmAgenticAdapter
@@ -40,11 +41,7 @@ ADAPTERS: dict[str, type[AbstractAdapter]] = {
     "naive_rag": NaiveRAGAdapter,
     "single_agent": SingleAgentAdapter,
     "swarm_agentic": SwarmAgenticAdapter,
-    # TODO: Add more adapters
-    # "adas": ADASAdapter,
-    # "masgpt": MASGPTAdapter,
-    # "autoagents": AutoAgentsAdapter,
-    # "cgmas": CGMASAdapter,
+    "cg_mas": CGMASAdapter,
 }
 
 
