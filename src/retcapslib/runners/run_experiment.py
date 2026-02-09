@@ -22,6 +22,7 @@ from tqdm import tqdm
 from retcapslib.adapters.base import AbstractAdapter
 from retcapslib.adapters.naive_rag import NaiveRAGAdapter
 from retcapslib.adapters.single_agent import SingleAgentAdapter
+from retcapslib.evaluation.llm_judge import llm_accuracy
 from retcapslib.evaluation.metrics import evaluate_question
 from retcapslib.logging.schemas import QuestionLog, SystemResults
 from retcapslib.retriever.core import Retriever, init_retriever
@@ -202,6 +203,18 @@ def run_system_on_benchmark(
         log.f1_score = metrics["f1"]
         log.context_recall = metrics.get("context_recall")
 
+        # LLM-as-a-judge accuracy
+        try:
+            log.llm_accuracy = llm_accuracy(
+                question=question_text,
+                predicted=predicted_answer,
+                gold=gold_answer,
+                model_name=model,
+            )
+        except Exception as e:
+            print(f"  LLM judge failed for {question_id}: {e}")
+            log.llm_accuracy = None
+
         question_logs.append(log)
 
         if log.error:
@@ -224,8 +237,21 @@ def run_system_on_benchmark(
         if recall_scores:
             results.avg_context_recall = sum(recall_scores) / len(recall_scores)
 
+        # LLM-as-a-judge accuracy
+        acc_scores = [
+            L.llm_accuracy for L in question_logs if L.llm_accuracy is not None
+        ]
+        if acc_scores:
+            results.avg_llm_accuracy = sum(acc_scores) / len(acc_scores)
+
         results.avg_tokens_per_question = sum(
             L.total_tokens for L in question_logs
+        ) / len(question_logs)
+        results.avg_prompt_tokens_per_question = sum(
+            L.total_prompt_tokens for L in question_logs
+        ) / len(question_logs)
+        results.avg_completion_tokens_per_question = sum(
+            L.total_completion_tokens for L in question_logs
         ) / len(question_logs)
         results.avg_retrieval_calls = sum(
             L.num_retrieval_calls for L in question_logs
@@ -342,8 +368,13 @@ def run_experiment(config_path: str | Path) -> None:
             print(f"\n  Results for {system_name}/{benchmark_name}:")
             print(f"    EM:  {results.avg_exact_match:.3f}")
             print(f"    F1:  {results.avg_f1:.3f}")
+            print(f"    ACC: {results.avg_llm_accuracy:.3f}")
             print(f"    CR:  {results.avg_context_recall:.3f}")
-            print(f"    Tokens/Q: {results.avg_tokens_per_question:.0f}")
+            print(
+                f"    Tokens/Q: {results.avg_tokens_per_question:.0f}"
+                f" (in: {results.avg_prompt_tokens_per_question:.0f},"
+                f" out: {results.avg_completion_tokens_per_question:.0f})"
+            )
             print(f"    Latency/Q: {results.avg_latency_ms:.0f}ms")
 
             save_results(results, results_dir)
@@ -355,7 +386,12 @@ def run_experiment(config_path: str | Path) -> None:
     print("=" * 60)
     for r in all_results:
         print(
-            f"{r.system_name:15} | {r.benchmark:10} | EM={r.avg_exact_match:.3f} | F1={r.avg_f1:.3f}"
+            f"{r.system_name:15} | {r.benchmark:12}"
+            f" | EM={r.avg_exact_match:.3f} | F1={r.avg_f1:.3f}"
+            f" | ACC={r.avg_llm_accuracy:.3f}"
+            f" | Tok={r.avg_tokens_per_question:.0f}"
+            f" (in:{r.avg_prompt_tokens_per_question:.0f}"
+            f" out:{r.avg_completion_tokens_per_question:.0f})"
         )
 
     print(f"\nResults saved to: {results_dir}")

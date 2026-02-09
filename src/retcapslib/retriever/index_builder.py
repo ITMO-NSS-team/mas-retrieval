@@ -26,6 +26,8 @@ from retcapslib.retriever.embedder import BGEM3Embedder
 CHROMA_MAX_BATCH = 41666
 
 # Per-dataset presets: (corpus_path, collection_name)
+# When using --dataset, the ChromaDB storage is automatically placed in a
+# per-dataset subdirectory: {output}/{collection_name}/
 DATASET_PRESETS = {
     "hotpotqa": (
         "experiments/data/corpus/hotpotqa_paragraphs.jsonl",
@@ -175,9 +177,12 @@ def main() -> None:
         corpus = args.corpus or "experiments/data/corpus/wiki_paragraphs.jsonl"
         collection = args.collection or "wikipedia"
 
+    # Place each dataset in its own subdirectory to avoid collision
+    chroma_path = f"{args.output}/{collection}"
+
     build_index(
         corpus_path=corpus,
-        chroma_path=args.output,
+        chroma_path=chroma_path,
         embedder_model=args.model,
         batch_size=args.batch_size,
         collection_name=collection,

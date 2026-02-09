@@ -55,12 +55,13 @@ class Retriever:
         self._reranker = JinaReranker(model_name=reranker_model)
 
         # Initialize ChromaDB client and get collection
-        index_path = Path(config["index_path"])
+        # Each dataset gets its own subdirectory under the base index_path
+        self._base_index_path = Path(config["index_path"])
+        collection_name = config.get("collection_name", "wikipedia")
+        index_path = self._base_index_path / collection_name
         self._client = chromadb.PersistentClient(path=str(index_path))
 
-        collection_name = config.get("collection_name", "wikipedia")
         self._collection = self._client.get_collection(collection_name)
-
         self._collection_name = collection_name
 
         # Store default parameters
@@ -70,12 +71,15 @@ class Retriever:
     def set_collection(self, name: str) -> None:
         """Switch to a different ChromaDB collection.
 
-        Keeps the embedder and reranker loaded — only the collection changes.
+        Re-creates the PersistentClient pointing at the per-dataset subdirectory.
+        Keeps the embedder and reranker loaded.
 
         Args:
             name: Name of the ChromaDB collection to switch to.
         """
         if name != self._collection_name:
+            new_path = self._base_index_path / name
+            self._client = chromadb.PersistentClient(path=str(new_path))
             self._collection = self._client.get_collection(name)
             self._collection_name = name
 

@@ -73,6 +73,9 @@ class QuestionLog(BaseModel):
     context_recall: float | None = Field(
         default=None, description="Fraction of gold paragraphs retrieved"
     )
+    llm_accuracy: float | None = Field(
+        default=None, description="LLM-as-a-judge accuracy (1.0 = correct, 0.0 = incorrect)"
+    )
 
 
 class SystemResults(BaseModel):
@@ -90,9 +93,18 @@ class SystemResults(BaseModel):
     avg_exact_match: float = Field(default=0.0, description="Average EM score")
     avg_f1: float = Field(default=0.0, description="Average F1 score")
     avg_context_recall: float = Field(default=0.0, description="Average context recall")
+    avg_llm_accuracy: float = Field(
+        default=0.0, description="Average LLM-as-a-judge accuracy"
+    )
 
     avg_tokens_per_question: float = Field(
-        default=0.0, description="Average tokens per question"
+        default=0.0, description="Average total tokens per question"
+    )
+    avg_prompt_tokens_per_question: float = Field(
+        default=0.0, description="Average prompt (input) tokens per question"
+    )
+    avg_completion_tokens_per_question: float = Field(
+        default=0.0, description="Average completion (output) tokens per question"
     )
     avg_retrieval_calls: float = Field(
         default=0.0, description="Average retrieval calls per question"
