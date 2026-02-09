@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 class ToolCall(BaseModel):
     """Record of a single tool invocation during question execution."""
 
-    tool_name: str = Field(description="Name of the tool (retrieve, rerank, search)")
+    tool_name: str = Field(description="Name of the tool (retrieve, rerank, calculate)")
     query: str = Field(description="Query string passed to the tool")
     top_k: int = Field(description="Number of results requested")
     results: list[str] = Field(description="List of returned doc_ids")

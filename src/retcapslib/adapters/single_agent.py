@@ -7,7 +7,7 @@ to gather evidence before answering.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic_ai import Agent, RunContext
@@ -15,9 +15,10 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from retcapslib.adapters.base import AbstractAdapter
+from retcapslib.adapters.tools import do_calculate, do_rerank, do_retrieve
 from retcapslib.logging.schemas import QuestionLog
 from retcapslib.logging.tracker import TokenTracker
-from retcapslib.retriever.core import Retriever
+from retcapslib.retriever.core import Document, Retriever
 
 
 @dataclass
@@ -26,40 +27,60 @@ class SingleAgentDeps:
 
     retriever: Retriever
     tracker: TokenTracker
+    _last_retrieved: list[Document] = field(default_factory=list)
 
 
 agent = Agent(
     deps_type=SingleAgentDeps,
     system_prompt=(
-        "You are a helpful assistant that answers questions by searching for relevant information.\n\n"
-        "You have access to a search tool that retrieves passages from a knowledge base.\n"
-        "For complex questions that require multiple pieces of information, you should:\n"
-        "1. Break down the question into sub-queries\n"
-        "2. Search for each piece of information\n"
-        "3. Combine the evidence to answer the question\n\n"
-        "When you have gathered enough information, provide your final answer.\n"
-        "Be concise and direct in your final answer."
+        "You are a research assistant that answers questions using a document "
+        "knowledge base and a calculator.\n\n"
+        "Tools:\n"
+        "- retrieve(query, top_k): Dense search for candidate passages. Use this first.\n"
+        "- rerank(query, top_k): Re-score the most recent retrieve() results with a "
+        "cross-encoder for better ranking. Always call after retrieve().\n"
+        "- calculate(expression): Evaluate a math expression "
+        '(e.g. "1234.5 * 0.15", "round(456.78 / 123, 2)").\n\n'
+        "Workflow:\n"
+        "1. Break complex questions into sub-queries\n"
+        "2. For each: retrieve(query) -> rerank(query) to get best passages\n"
+        "3. Use calculate() for numerical computations\n"
+        "4. Synthesize evidence into a concise final answer\n\n"
+        "Note: rerank() operates on results from your most recent retrieve() call."
     ),
 )
 
 
 @agent.tool
-def search(ctx: RunContext[SingleAgentDeps], query: str, top_k: int = 5) -> str:
-    """Search the knowledge base for relevant passages.
-
-    Args:
-        query: The search query to find relevant passages.
-        top_k: Number of passages to retrieve (default: 5).
-    """
-    with ctx.deps.tracker.track_tool("search", query, top_k) as doc_ids:
-        docs = ctx.deps.retriever.search(query, top_k=top_k)
+def retrieve(ctx: RunContext[SingleAgentDeps], query: str, top_k: int = 20) -> str:
+    """Retrieve candidate passages from the knowledge base via dense search."""
+    with ctx.deps.tracker.track_tool("retrieve", query, top_k) as doc_ids:
+        docs, formatted = do_retrieve(ctx.deps.retriever, query, top_k)
+        ctx.deps._last_retrieved = docs
         doc_ids.extend([doc.doc_id for doc in docs])
+    return formatted
 
-    results = []
-    for i, doc in enumerate(docs, 1):
-        results.append(f"[{i}] {doc.title}: {doc.text}")
 
-    return "\n\n".join(results) if results else "No results found."
+@agent.tool
+def rerank(ctx: RunContext[SingleAgentDeps], query: str, top_k: int = 10) -> str:
+    """Re-rank recently retrieved passages using a cross-encoder model."""
+    if not ctx.deps._last_retrieved:
+        return "Error: No documents to rerank. Call retrieve() first."
+    with ctx.deps.tracker.track_tool("rerank", query, top_k) as doc_ids:
+        docs, formatted = do_rerank(
+            ctx.deps.retriever, query, ctx.deps._last_retrieved, top_k
+        )
+        ctx.deps._last_retrieved = docs
+        doc_ids.extend([doc.doc_id for doc in docs])
+    return formatted
+
+
+@agent.tool
+def calculate(ctx: RunContext[SingleAgentDeps], expression: str) -> str:
+    """Evaluate a mathematical expression (e.g. '1234.5 * 0.15', 'round(456.78 / 123, 2)')."""
+    with ctx.deps.tracker.track_tool("calculate", expression, 0) as _doc_ids:
+        result = do_calculate(expression)
+    return result
 
 
 class SingleAgentAdapter(AbstractAdapter):
