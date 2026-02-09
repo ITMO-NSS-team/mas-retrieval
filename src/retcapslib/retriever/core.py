@@ -8,6 +8,7 @@ Canonical functions:
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -64,6 +65,9 @@ class Retriever:
         self._collection = self._client.get_collection(collection_name)
         self._collection_name = collection_name
 
+        # Lock protecting embedder/reranker from concurrent tokenizer access
+        self._lock = threading.Lock()
+
         # Store default parameters
         self._default_retrieve_k = config.get("retrieve_top_k", 20)
         self._default_rerank_k = config.get("rerank_top_k", 10)
@@ -96,8 +100,9 @@ class Retriever:
         if top_k is None:
             top_k = self._default_retrieve_k
 
-        # Encode query
-        query_embedding = self._embedder.encode_queries([query])
+        with self._lock:
+            # Encode query
+            query_embedding = self._embedder.encode_queries([query])
 
         # Ensure embedding is float32
         if query_embedding.dtype != np.float32:
@@ -155,8 +160,8 @@ class Retriever:
         """
         if top_k is None:
             top_k = self._default_rerank_k
-
-        return self._reranker.rerank(query, docs, top_k)
+        with self._lock:
+            return self._reranker.rerank(query, docs, top_k)
 
     def search(
         self,
