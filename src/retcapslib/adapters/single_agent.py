@@ -116,7 +116,7 @@ class SingleAgentAdapter(AbstractAdapter):
         try:
             deps = SingleAgentDeps(retriever=self._retriever, tracker=tracker)
 
-            # Build model instance — strip "openai/" prefix if present
+            # Build model instance - strip "openai/" prefix if present
             model_name = self._model
 
             base_url = os.environ.get("OPENAI_BASE_URL")
