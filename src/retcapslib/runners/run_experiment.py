@@ -22,6 +22,7 @@ from tqdm import tqdm
 from retcapslib.adapters.base import AbstractAdapter
 from retcapslib.adapters.naive_rag import NaiveRAGAdapter
 from retcapslib.adapters.single_agent import SingleAgentAdapter
+from retcapslib.adapters.swarm_agentic import SwarmAgenticAdapter
 from retcapslib.evaluation.llm_judge import llm_accuracy
 from retcapslib.evaluation.metrics import evaluate_question
 from retcapslib.logging.schemas import QuestionLog, SystemResults
@@ -38,6 +39,7 @@ def _slugify(text: str) -> str:
 ADAPTERS: dict[str, type[AbstractAdapter]] = {
     "naive_rag": NaiveRAGAdapter,
     "single_agent": SingleAgentAdapter,
+    "swarm_agentic": SwarmAgenticAdapter,
     # TODO: Add more adapters
     # "adas": ADASAdapter,
     # "masgpt": MASGPTAdapter,

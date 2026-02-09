@@ -25,6 +25,7 @@ execution:
 systems:
   - naive_rag
   - single_agent
+  - swarm_agentic
 
 output:
   results_dir: "results/"

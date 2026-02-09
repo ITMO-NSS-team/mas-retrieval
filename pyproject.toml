@@ -27,3 +27,9 @@ dependencies = [
     "pydantic-ai>=1.56.0",
     "pydantic-evals>=1.56.0",
 ]
+
+[dependency-groups]
+swarm = [
+    "langchain-openai>=0.3.0",
+    "langchain-core>=0.3.0",
+]
