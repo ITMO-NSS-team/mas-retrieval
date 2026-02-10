@@ -98,14 +98,26 @@ class MASZeroAdapter(AbstractAdapter):
     def name(self) -> str:
         return f"mas_zero_{self._generation_mode}"
 
+    @property
+    def generated_system(self) -> dict | None:
+        """Access the full generated system dict (thought, name, code).
+
+        Returns None if no system has been generated yet.
+        """
+        return self._cached_system
+
     def generate_system(self, question: str) -> str:
         """Generate a MAS architecture via the meta-model.
 
         In shared mode, generates once and caches. In per_question mode,
         generates a fresh architecture for each question.
+
+        Returns:
+            Multi-line description including architecture name, reasoning,
+            and the generated forward() code.
         """
         if self._generation_mode == "shared" and self._cached_system is not None:
-            return self._cached_system["name"]
+            return self._format_system_description(self._cached_system)
 
         question_for_prompt = question if self._generation_mode == "per_question" else None
         archive = list(self._blocks)
@@ -115,10 +127,9 @@ class MASZeroAdapter(AbstractAdapter):
 
         if solution is not None:
             self._cached_system = solution
-            logger.info(
-                "MAS-Zero generated architecture: %s", solution.get("name", "unknown"),
-            )
-            return solution.get("name", "generated")
+            desc = self._format_system_description(solution)
+            logger.info("MAS-Zero generated architecture:\n%s", desc)
+            return desc
 
         # Fallback: use first block directly
         logger.warning("Meta-model failed to generate; falling back to first block")
@@ -126,7 +137,17 @@ class MASZeroAdapter(AbstractAdapter):
             "name": "fallback-cot",
             "code": RAG_BLOCKS[0]["code"],
         }
-        return self._cached_system["name"]
+        return self._format_system_description(self._cached_system)
+
+    @staticmethod
+    def _format_system_description(system: dict) -> str:
+        """Format a system dict into a readable multi-line description."""
+        parts = [f"Architecture: {system.get('name', 'unknown')}"]
+        if "thought" in system:
+            parts.append(f"Reasoning: {system['thought']}")
+        if "code" in system:
+            parts.append(f"Code:\n{system['code']}")
+        return "\n".join(parts)
 
     @backoff.on_exception(backoff.expo, (openai.RateLimitError, openai.APITimeoutError), max_tries=3)
     def _call_meta_model(self, prompt: str) -> dict | None:
