@@ -21,6 +21,7 @@ from tqdm import tqdm
 
 from retcapslib.adapters.base import AbstractAdapter
 from retcapslib.adapters.automas import AutoMASAdapter
+from retcapslib.adapters.meta_agent import MetaAgentAdapter
 from retcapslib.adapters.naive_rag import NaiveRAGAdapter
 from retcapslib.adapters.single_agent import SingleAgentAdapter
 from retcapslib.adapters.swarm_agentic import SwarmAgenticAdapter
@@ -43,6 +44,7 @@ ADAPTERS: dict[str, type[AbstractAdapter]] = {
     "single_agent": SingleAgentAdapter,
     "swarm_agentic": SwarmAgenticAdapter,
     "automas": AutoMASAdapter,
+    "meta_agent": MetaAgentAdapter,
 }
 
 
