@@ -27,6 +27,7 @@ dependencies = [
     "pydantic-ai>=1.56.0",
     "pydantic-evals>=1.56.0",
     "pymupdf>=1.25.0",
+    "pydantic-graph>=1.56.0",
 ]
 
 [project.scripts]
