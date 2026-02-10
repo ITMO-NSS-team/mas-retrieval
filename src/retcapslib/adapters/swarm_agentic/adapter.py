@@ -30,6 +30,8 @@ class SwarmAgenticAdapter(AbstractAdapter):
         **kwargs: Any,
     ) -> None:
         super().__init__(retriever, model, **kwargs)
+        if self._generation_mode is None:
+            self._generation_mode = "shared"
         self._team_dict: dict[str, Any] | None = None
         self._forward_code: str | None = None
         self._initialized = False
@@ -68,7 +70,7 @@ class SwarmAgenticAdapter(AbstractAdapter):
 
     @property
     def name(self) -> str:
-        return "swarm_agentic"
+        return f"swarm_agentic_{self._generation_mode}"
 
     def generate_system(self, question: str) -> str:
         self._init_team()
@@ -81,6 +83,8 @@ class SwarmAgenticAdapter(AbstractAdapter):
         question: str,
         gold_answer: str,
     ) -> tuple[str, QuestionLog]:
+        if self._generation_mode == "per_question":
+            self._initialized = False
         self._init_team()
         assert self._team_dict is not None
         assert self._forward_code is not None

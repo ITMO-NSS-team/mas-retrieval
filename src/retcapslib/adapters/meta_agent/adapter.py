@@ -38,6 +38,8 @@ class MetaAgentAdapter(AbstractAdapter):
         **kwargs: Any,
     ) -> None:
         super().__init__(retriever, model, **kwargs)
+        if self._generation_mode is None:
+            self._generation_mode = "shared"
         self._agents_json: list[dict] | None = None
         self._states_json: dict | None = None
         self._initialized = False
@@ -68,7 +70,7 @@ class MetaAgentAdapter(AbstractAdapter):
 
     @property
     def name(self) -> str:
-        return "meta_agent"
+        return f"meta_agent_{self._generation_mode}"
 
     def generate_system(self, question: str) -> str:
         self._init_team()
@@ -125,6 +127,8 @@ class MetaAgentAdapter(AbstractAdapter):
         question: str,
         gold_answer: str,
     ) -> tuple[str, QuestionLog]:
+        if self._generation_mode == "per_question":
+            self._initialized = False
         self._init_team()
         assert self._agents_json is not None
         assert self._states_json is not None

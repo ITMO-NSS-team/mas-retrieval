@@ -36,6 +36,7 @@ class AbstractAdapter(ABC):
         """
         self._retriever = retriever
         self._model = model
+        self._generation_mode = kwargs.pop("generation_mode", None)
         self._config = kwargs
 
     @property

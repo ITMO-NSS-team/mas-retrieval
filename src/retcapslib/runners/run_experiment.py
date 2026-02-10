@@ -97,6 +97,7 @@ def load_adapter(
     system_name: str,
     retriever: Retriever,
     model: str,
+    **kwargs: Any,
 ) -> AbstractAdapter:
     """Load and initialize an adapter by name.
 
@@ -104,6 +105,7 @@ def load_adapter(
         system_name: Name of the system (e.g., naive_rag, single_agent).
         retriever: Initialized Retriever instance.
         model: LLM model to use.
+        **kwargs: Additional options (e.g., generation_mode).
 
     Returns:
         Initialized adapter instance.
@@ -114,7 +116,7 @@ def load_adapter(
         )
 
     adapter_class = ADAPTERS[system_name]
-    return adapter_class(retriever=retriever, model=model)
+    return adapter_class(retriever=retriever, model=model, **kwargs)
 
 
 def extract_gold_paragraphs(question: dict[str, Any]) -> list[str]:
@@ -346,17 +348,25 @@ def run_experiment(config_path: str | Path) -> None:
     model = config["models"]["primary"]
     all_results: list[SystemResults] = []
 
-    for system_name in config["systems"]:
+    for system_entry in config["systems"]:
         try:
+            if isinstance(system_entry, str):
+                system_name, system_opts = system_entry, {}
+            else:
+                system_opts = dict(system_entry)
+                system_name = system_opts.pop("name")
+
             if system_name not in ADAPTERS:
                 print(f"Skipping unknown system: {system_name}")
                 continue
 
             print(f"\n{'=' * 40}")
             print(f"System: {system_name}")
+            if system_opts:
+                print(f"Options: {system_opts}")
             print("=" * 40)
 
-            adapter = load_adapter(system_name, retriever, model)
+            adapter = load_adapter(system_name, retriever, model, **system_opts)
 
             for benchmark_name, benchmark_cfg in config["benchmarks"].items():
                 print(f"\nBenchmark: {benchmark_name}")
@@ -395,7 +405,7 @@ def run_experiment(config_path: str | Path) -> None:
                 all_results.append(results)
 
         except Exception as e:
-            print(f"\nFATAL: System '{system_name}' failed: {e}")
+            print(f"\nFATAL: System '{system_entry}' failed: {e}")
             continue
 
     # Print final summary

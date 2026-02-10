@@ -26,11 +26,14 @@ class AutoMASAdapter(AbstractAdapter):
 
     def __init__(self, retriever: Any, model: str = "gpt-4o-mini", **kwargs: Any) -> None:
         super().__init__(retriever, model, **kwargs)
+        if self._generation_mode is None:
+            self._generation_mode = "per_question"
         self._automas: Any = None
+        self._cached_pipeline: Any = None
 
     @property
     def name(self) -> str:
-        return "automas"
+        return f"automas_{self._generation_mode}"
 
     def _setup_mcp_registry(self) -> None:
         """Replace AutoMAS MCP servers with our retrieval+calculator server."""
@@ -114,12 +117,17 @@ class AutoMASAdapter(AbstractAdapter):
         os.environ["RETCAP_DOCIDS_FILE"] = str(docids_file)
 
         try:
-            result = self._automas.run(query=question)
+            if self._generation_mode == "shared" and self._cached_pipeline is not None:
+                result = self._cached_pipeline.execute(query=question)
+            else:
+                result = self._automas.run(query=question)
+                if self._generation_mode == "shared":
+                    self._cached_pipeline = self._automas.pipeline
 
             answer = self._extract_answer(result)
 
             # Log LLM usage from pipeline execution
-            pipeline = self._automas.pipeline
+            pipeline = self._cached_pipeline or self._automas.pipeline
             prompt_tokens = getattr(pipeline, "input_tokens", 0) or 0
             completion_tokens = getattr(pipeline, "output_tokens", 0) or 0
             tracker.log_llm_call(
