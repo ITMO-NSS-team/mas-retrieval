@@ -4,7 +4,7 @@ experiment:
 benchmarks:
   hotpotqa:
     split: "fullwiki_dev"
-    sample_n: 10
+    sample_n: 500
     collection_name: "hotpotqa"
 
 models:
@@ -18,8 +18,7 @@ retriever:
   index_path: "experiments/data/chroma_index/"
 
 systems:
-  - naive_rag
-  - single_agent
+  - automas
 
 output:
   results_dir: "results/"

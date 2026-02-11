@@ -39,6 +39,30 @@ class AbstractAdapter(ABC):
         self._generation_mode = kwargs.pop("generation_mode", None)
         self._config = kwargs
 
+        # Benchmark context (set by runner before each benchmark)
+        self._benchmark_name: str | None = None
+        self._benchmark_description: str | None = None
+        self._sample_questions: list[str] = []
+
+    def set_benchmark_context(
+        self,
+        benchmark_name: str,
+        description: str,
+        sample_questions: list[str] | None = None,
+    ) -> None:
+        """Provide benchmark context for shared-mode system generation.
+
+        Called by the runner before each benchmark. Resets adapter caches.
+        """
+        self._benchmark_name = benchmark_name
+        self._benchmark_description = description
+        self._sample_questions = sample_questions or []
+        self._on_benchmark_change()
+
+    def _on_benchmark_change(self) -> None:
+        """Hook for subclasses to reset caches when benchmark changes."""
+        pass
+
     @property
     def name(self) -> str:
         """Return the system name for logging."""

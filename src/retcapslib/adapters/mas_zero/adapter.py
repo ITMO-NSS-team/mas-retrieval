@@ -76,16 +76,19 @@ class MASZeroAdapter(AbstractAdapter):
         self._max_sc: int = self._config.get("max_sc", 3)
         self._debug_max: int = self._config.get("debug_max", 3)
         self._cot_instruction: str = self._config.get(
-            "cot_instruction", _DEFAULT_COT_INSTRUCTION,
+            "cot_instruction",
+            _DEFAULT_COT_INSTRUCTION,
         )
         self._debate_roles: list[str] = self._config.get(
-            "debate_roles", _DEFAULT_DEBATE_ROLES,
+            "debate_roles",
+            _DEFAULT_DEBATE_ROLES,
         )
         if not self._debate_roles:
             logger.warning("debate_roles empty; using defaults")
             self._debate_roles = list(_DEFAULT_DEBATE_ROLES)
         blocks_config = self._config.get(
-            "blocks", ["RAG_COT", "RAG_REFLEXION", "RAG_DEBATE", "RAG_COT_SC"],
+            "blocks",
+            ["RAG_COT", "RAG_REFLEXION", "RAG_DEBATE", "RAG_COT_SC"],
         )
         block_map = {b["name"]: b for b in RAG_BLOCKS}
         block_name_map = {
@@ -100,23 +103,30 @@ class MASZeroAdapter(AbstractAdapter):
             if name in block_map:
                 self._blocks.append(block_map[name])
         if not self._blocks:
-            logger.warning("No blocks matched config %s; using all RAG_BLOCKS", blocks_config)
+            logger.warning(
+                "No blocks matched config %s; using all RAG_BLOCKS", blocks_config
+            )
             self._blocks = list(RAG_BLOCKS)
 
         # Cached architecture (for shared mode)
         self._cached_system: dict | None = None
 
         # Tracing
-        self._trace_enabled: bool = (
-            self._config.get("trace", False)
-            or os.environ.get("MAS_ZERO_TRACE", "").lower() in ("1", "true", "yes")
-        )
+        self._trace_enabled: bool = self._config.get("trace", False) or os.environ.get(
+            "MAS_ZERO_TRACE", ""
+        ).lower() in ("1", "true", "yes")
 
         logger.info(
             "MASZeroAdapter: mode=%s, meta_model=%s, model=%s, blocks=%d, trace=%s",
-            self._generation_mode, self._meta_model, self._model,
-            len(self._blocks), self._trace_enabled,
+            self._generation_mode,
+            self._meta_model,
+            self._model,
+            len(self._blocks),
+            self._trace_enabled,
         )
+
+    def _on_benchmark_change(self) -> None:
+        self._cached_system = None
 
     @property
     def name(self) -> str:
@@ -143,10 +153,21 @@ class MASZeroAdapter(AbstractAdapter):
         if self._generation_mode == "shared" and self._cached_system is not None:
             return self._format_system_description(self._cached_system)
 
-        question_for_prompt = question if self._generation_mode == "per_question" else None
+        question_for_prompt = (
+            question if self._generation_mode == "per_question" else None
+        )
         archive = list(self._blocks)
 
-        prompt = build_meta_prompt(archive, question=question_for_prompt)
+        prompt = build_meta_prompt(
+            archive,
+            question=question_for_prompt,
+            benchmark_description=self._benchmark_description,
+            sample_questions=(
+                self._sample_questions
+                if self._generation_mode == "shared"
+                else None
+            ),
+        )
         solution = self._call_meta_model(prompt)
 
         if solution is not None:
@@ -157,10 +178,14 @@ class MASZeroAdapter(AbstractAdapter):
 
         # Fallback: use first block directly
         logger.warning("Meta-model failed to generate; falling back to first block")
-        self._cached_system = self._blocks[0] if self._blocks else {
-            "name": "fallback-cot",
-            "code": RAG_BLOCKS[0]["code"],
-        }
+        self._cached_system = (
+            self._blocks[0]
+            if self._blocks
+            else {
+                "name": "fallback-cot",
+                "code": RAG_BLOCKS[0]["code"],
+            }
+        )
         return self._format_system_description(self._cached_system)
 
     @staticmethod
@@ -173,7 +198,9 @@ class MASZeroAdapter(AbstractAdapter):
             parts.append(f"Code:\n{system['code']}")
         return "\n".join(parts)
 
-    @backoff.on_exception(backoff.expo, (openai.RateLimitError, openai.APITimeoutError), max_tries=3)
+    @backoff.on_exception(
+        backoff.expo, (openai.RateLimitError, openai.APITimeoutError), max_tries=3
+    )
     def _call_meta_model(self, prompt: str) -> dict | None:
         """Call the meta-model to generate an architecture."""
         client = openai.OpenAI(
@@ -197,31 +224,42 @@ class MASZeroAdapter(AbstractAdapter):
             try:
                 solution = json.loads(text)
             except json.JSONDecodeError:
-                logger.warning("Meta-model returned invalid JSON (attempt %d)", attempt + 1)
+                logger.warning(
+                    "Meta-model returned invalid JSON (attempt %d)", attempt + 1
+                )
                 continue
 
             if not all(k in solution for k in ("name", "thought", "code")):
-                logger.warning("Meta-model missing required keys (attempt %d)", attempt + 1)
+                logger.warning(
+                    "Meta-model missing required keys (attempt %d)", attempt + 1
+                )
                 continue
 
             if "def forward(self, taskInfo):" not in solution["code"]:
-                logger.warning("Generated code missing forward() signature (attempt %d)", attempt + 1)
+                logger.warning(
+                    "Generated code missing forward() signature (attempt %d)",
+                    attempt + 1,
+                )
                 continue
 
             # Syntax check
             try:
                 compile(solution["code"], "<generated>", "exec")
             except SyntaxError as e:
-                logger.warning("Generated code has syntax error (attempt %d): %s", attempt + 1, e)
+                logger.warning(
+                    "Generated code has syntax error (attempt %d): %s", attempt + 1, e
+                )
                 messages.append({"role": "assistant", "content": text})
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        f"Syntax error in your code: {e}\n"
-                        "Please fix the code and return the corrected version "
-                        "in the same JSON format."
-                    ),
-                })
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Syntax error in your code: {e}\n"
+                            "Please fix the code and return the corrected version "
+                            "in the same JSON format."
+                        ),
+                    }
+                )
                 continue
 
             return solution
@@ -229,7 +267,8 @@ class MASZeroAdapter(AbstractAdapter):
         return None
 
     def _make_tool_closures(
-        self, tracker: TokenTracker,
+        self,
+        tracker: TokenTracker,
     ) -> tuple[Any, Any, Any]:
         """Build tool closures that track calls via TokenTracker."""
         last_retrieved: list[Document] = []
@@ -343,22 +382,25 @@ class MASZeroAdapter(AbstractAdapter):
                         is_sub_task=False,
                     ):
                         result = super().query(
-                            input_infos, instruction,
+                            input_infos,
+                            instruction,
                             iteration_idx=iteration_idx,
                             is_sub_task=is_sub_task,
                         )
-                        _collector.append(AgentTrace(
-                            agent_name=self_agent.agent_name,
-                            agent_id=self_agent.id,
-                            output_fields=self_agent.output_fields,
-                            role=self_agent.role,
-                            iteration_idx=iteration_idx,
-                            input_summary=instruction[:200],
-                            output={
-                                info.name: (info.content or "")[:500]
-                                for info in result
-                            },
-                        ))
+                        _collector.append(
+                            AgentTrace(
+                                agent_name=self_agent.agent_name,
+                                agent_id=self_agent.id,
+                                output_fields=self_agent.output_fields,
+                                role=self_agent.role,
+                                iteration_idx=iteration_idx,
+                                input_summary=instruction[:200],
+                                output={
+                                    info.name: (info.content or "")[:500]
+                                    for info in result
+                                },
+                            )
+                        )
                         return result
 
                 exec_agent_class = _TracedAgent
@@ -366,11 +408,15 @@ class MASZeroAdapter(AbstractAdapter):
                 exec_agent_class = LLMAgentBase
 
             namespace: dict[str, Any] = {}
-            exec(forward_code, {
-                "LLMAgentBase": exec_agent_class,
-                "Info": Info,
-                "__builtins__": __builtins__,
-            }, namespace)
+            exec(
+                forward_code,
+                {
+                    "LLMAgentBase": exec_agent_class,
+                    "Info": Info,
+                    "__builtins__": __builtins__,
+                },
+                namespace,
+            )
 
             if "forward" in namespace and callable(namespace["forward"]):
                 forward_fn = namespace["forward"]
@@ -384,6 +430,7 @@ class MASZeroAdapter(AbstractAdapter):
                 bound_name = func_names[0]
 
             import types
+
             system.forward = types.MethodType(forward_fn, system)
 
             # Point C: Capture forward binding
@@ -392,7 +439,13 @@ class MASZeroAdapter(AbstractAdapter):
 
             # 6. Create taskInfo and run forward
             task_info = Info(
-                "task", "user", question, None, None, None, -1,
+                "task",
+                "user",
+                question,
+                None,
+                None,
+                None,
+                -1,
             )
             result = system.forward(task_info)
 

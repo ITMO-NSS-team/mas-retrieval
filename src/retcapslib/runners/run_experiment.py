@@ -19,8 +19,8 @@ from typing import Any
 import yaml
 from tqdm import tqdm
 
-from retcapslib.adapters.base import AbstractAdapter
 from retcapslib.adapters.automas import AutoMASAdapter
+from retcapslib.adapters.base import AbstractAdapter
 from retcapslib.adapters.mas_zero import MASZeroAdapter
 from retcapslib.adapters.meta_agent import MetaAgentAdapter
 from retcapslib.adapters.naive_rag import NaiveRAGAdapter
@@ -47,6 +47,20 @@ ADAPTERS: dict[str, type[AbstractAdapter]] = {
     "automas": AutoMASAdapter,
     "meta_agent": MetaAgentAdapter,
     "mas_zero": MASZeroAdapter,
+}
+
+
+_DEFAULT_BENCHMARK_DESCRIPTIONS: dict[str, str] = {
+    "hotpotqa": (
+        "Multi-hop question answering over Wikipedia. Questions require "
+        "finding and reasoning over 2+ documents to produce a short "
+        "factual answer (entity, yes/no, number, or short phrase)."
+    ),
+    "financebench": (
+        "Financial question answering over SEC filings and company reports. "
+        "Questions require locating specific financial data and performing "
+        "calculations or comparisons to produce precise numerical or factual answers."
+    ),
 }
 
 
@@ -383,6 +397,14 @@ def run_experiment(config_path: str | Path) -> None:
                 questions = load_benchmark(benchmark_name, config)
                 print(f"  Loaded {len(questions)} questions")
 
+                # Provide benchmark context to adapter for shared-mode generation
+                description = benchmark_cfg.get(
+                    "description",
+                    _DEFAULT_BENCHMARK_DESCRIPTIONS.get(benchmark_name, ""),
+                )
+                sample_qs = [q.get("question", "") for q in questions[:5]]
+                adapter.set_benchmark_context(benchmark_name, description, sample_qs)
+
                 results = run_system_on_benchmark(
                     adapter=adapter,
                     questions=questions,
@@ -435,7 +457,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=str,
-        default="src/retcapslib/cfg_test_financebench.yaml",
+        default="src/retcapslib/cfg_test_hotpot.yaml",
         help="Path to experiment config",
     )
 

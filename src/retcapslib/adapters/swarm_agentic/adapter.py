@@ -36,6 +36,11 @@ class SwarmAgenticAdapter(AbstractAdapter):
         self._forward_code: str | None = None
         self._initialized = False
 
+    def _on_benchmark_change(self) -> None:
+        self._initialized = False
+        self._team_dict = None
+        self._forward_code = None
+
     def _make_llm(self) -> ChatOpenAI:
         """Create a ChatOpenAI instance with env-based config."""
         return ChatOpenAI(

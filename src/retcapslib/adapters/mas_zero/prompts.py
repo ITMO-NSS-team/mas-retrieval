@@ -45,12 +45,37 @@ EXAMPLE = {
 }
 
 
-def build_meta_prompt(archive: list[dict], question: str | None = None) -> str:
+def _benchmark_context(
+    description: str | None,
+    sample_questions: list[str] | None,
+) -> str:
+    """Build an optional benchmark context section for the meta-prompt."""
+    if not description:
+        return ""
+    parts = [f"# Benchmark Context\n{description}\n"]
+    if sample_questions:
+        examples = "\n".join(f"- {q}" for q in sample_questions[:3])
+        parts.append(
+            f"\nExample questions from this benchmark:\n{examples}\n"
+            "\nDesign your architecture to handle this TYPE of questions effectively, "
+            "not just these specific examples.\n"
+        )
+    return "\n".join(parts) + "\n"
+
+
+def build_meta_prompt(
+    archive: list[dict],
+    question: str | None = None,
+    benchmark_description: str | None = None,
+    sample_questions: list[str] | None = None,
+) -> str:
     """Build the meta-agent prompt for generating RAG architectures.
 
     Args:
         archive: List of block dicts with {thought, name, code}.
         question: Optional question to include for per_question mode.
+        benchmark_description: Description of the benchmark task type.
+        sample_questions: Example questions from the benchmark.
 
     Returns:
         The user prompt string.
@@ -102,7 +127,7 @@ Your code must define exactly one function: `def forward(self, taskInfo):`
 - Must return self.make_final_answer(thinking, answer)
 - The answer Info must contain the final answer text
 
-# Your Task
+{_benchmark_context(benchmark_description, sample_questions)}# Your Task
 Design an optimal RAG architecture that combines retrieval with reasoning
 blocks for question answering. You can:
 - Combine blocks (e.g., retrieve -> debate -> reflexion)
