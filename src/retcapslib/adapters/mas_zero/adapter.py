@@ -308,6 +308,8 @@ class MASZeroAdapter(AbstractAdapter):
                     f"System '{self._cached_system.get('name', '?')}' has no 'code' field"
                 )
 
+            print(self._format_system_description(self._cached_system))
+
             # Point B: Capture architecture details
             if trace is not None:
                 trace.architecture_name = self._cached_system.get("name", "")
