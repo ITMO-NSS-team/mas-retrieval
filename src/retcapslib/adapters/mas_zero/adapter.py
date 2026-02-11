@@ -26,6 +26,7 @@ from retcapslib.adapters.mas_zero.core import (
     LLMAgentBase,
 )
 from retcapslib.adapters.mas_zero.prompts import SYSTEM_PROMPT, build_meta_prompt
+from retcapslib.adapters.mas_zero.tracing import AgentTrace, MASZeroTrace
 from retcapslib.adapters.tools import do_calculate, do_rerank, do_retrieve
 from retcapslib.logging.schemas import QuestionLog
 from retcapslib.logging.tracker import TokenTracker
@@ -62,6 +63,11 @@ class MASZeroAdapter(AbstractAdapter):
         super().__init__(retriever, model, **kwargs)
         if self._generation_mode is None:
             self._generation_mode = "shared"
+        if self._generation_mode not in ("shared", "per_question"):
+            raise ValueError(
+                f"Invalid generation_mode '{self._generation_mode}'; "
+                "use 'shared' or 'per_question'"
+            )
 
         self._n_generation: int = self._config.get("n_generation", 1)
         self._meta_model: str = self._config.get("meta_model", self._model)
@@ -75,6 +81,9 @@ class MASZeroAdapter(AbstractAdapter):
         self._debate_roles: list[str] = self._config.get(
             "debate_roles", _DEFAULT_DEBATE_ROLES,
         )
+        if not self._debate_roles:
+            logger.warning("debate_roles empty; using defaults")
+            self._debate_roles = list(_DEFAULT_DEBATE_ROLES)
         blocks_config = self._config.get(
             "blocks", ["RAG_COT", "RAG_REFLEXION", "RAG_DEBATE", "RAG_COT_SC"],
         )
@@ -90,9 +99,24 @@ class MASZeroAdapter(AbstractAdapter):
             name = block_name_map.get(b, b)
             if name in block_map:
                 self._blocks.append(block_map[name])
+        if not self._blocks:
+            logger.warning("No blocks matched config %s; using all RAG_BLOCKS", blocks_config)
+            self._blocks = list(RAG_BLOCKS)
 
         # Cached architecture (for shared mode)
         self._cached_system: dict | None = None
+
+        # Tracing
+        self._trace_enabled: bool = (
+            self._config.get("trace", False)
+            or os.environ.get("MAS_ZERO_TRACE", "").lower() in ("1", "true", "yes")
+        )
+
+        logger.info(
+            "MASZeroAdapter: mode=%s, meta_model=%s, model=%s, blocks=%d, trace=%s",
+            self._generation_mode, self._meta_model, self._model,
+            len(self._blocks), self._trace_enabled,
+        )
 
     @property
     def name(self) -> str:
@@ -249,6 +273,17 @@ class MASZeroAdapter(AbstractAdapter):
             gold_answer=gold_answer,
         )
 
+        # Point A: Init trace
+        trace: MASZeroTrace | None = None
+        if self._trace_enabled:
+            trace = MASZeroTrace(
+                question_id=question_id,
+                mode=self._generation_mode,
+                meta_model=self._meta_model,
+                node_model=self._model,
+                blocks_offered=[b["name"] for b in self._blocks],
+            )
+
         try:
             # 1. Build tool closures
             retrieve_fn, rerank_fn, calc_fn = self._make_tool_closures(tracker)
@@ -264,9 +299,20 @@ class MASZeroAdapter(AbstractAdapter):
 
             # 3. Generate system (architecture)
             self.generate_system(question)
-            assert self._cached_system is not None
+            if self._cached_system is None:
+                raise RuntimeError("generate_system() failed to produce a system")
 
-            forward_code = self._cached_system["code"]
+            forward_code = self._cached_system.get("code")
+            if not forward_code:
+                raise RuntimeError(
+                    f"System '{self._cached_system.get('name', '?')}' has no 'code' field"
+                )
+
+            # Point B: Capture architecture details
+            if trace is not None:
+                trace.architecture_name = self._cached_system.get("name", "")
+                trace.architecture_thought = self._cached_system.get("thought", "")
+                trace.generated_code = forward_code
 
             # 4. Build AgentSystem with tools and config
             system = AgentSystem()
@@ -281,19 +327,66 @@ class MASZeroAdapter(AbstractAdapter):
             system._usage_callback = usage_callback
 
             # 5. exec() forward function and set on the system
+            # Use traced agent class if tracing is enabled
+            if trace is not None:
+                _collector = trace.agent_calls
+                _OrigAgent = LLMAgentBase
+
+                class _TracedAgent(_OrigAgent):
+                    def query(
+                        self_agent,
+                        input_infos,
+                        instruction,
+                        iteration_idx=-1,
+                        is_sub_task=False,
+                    ):
+                        result = super().query(
+                            input_infos, instruction,
+                            iteration_idx=iteration_idx,
+                            is_sub_task=is_sub_task,
+                        )
+                        _collector.append(AgentTrace(
+                            agent_name=self_agent.agent_name,
+                            agent_id=self_agent.id,
+                            output_fields=self_agent.output_fields,
+                            role=self_agent.role,
+                            iteration_idx=iteration_idx,
+                            input_summary=instruction[:200],
+                            output={
+                                info.name: (info.content or "")[:500]
+                                for info in result
+                            },
+                        ))
+                        return result
+
+                exec_agent_class = _TracedAgent
+            else:
+                exec_agent_class = LLMAgentBase
+
             namespace: dict[str, Any] = {}
             exec(forward_code, {
-                "LLMAgentBase": LLMAgentBase,
+                "LLMAgentBase": exec_agent_class,
                 "Info": Info,
                 "__builtins__": __builtins__,
             }, namespace)
 
-            func_names = [k for k, v in namespace.items() if callable(v)]
-            if not func_names:
-                raise RuntimeError("Generated code did not define any callable")
+            if "forward" in namespace and callable(namespace["forward"]):
+                forward_fn = namespace["forward"]
+                bound_name = "forward"
+            else:
+                func_names = [k for k, v in namespace.items() if callable(v)]
+                if not func_names:
+                    raise RuntimeError("Generated code did not define any callable")
+                logger.warning("No 'forward' in namespace; using '%s'", func_names[0])
+                forward_fn = namespace[func_names[0]]
+                bound_name = func_names[0]
 
             import types
-            system.forward = types.MethodType(namespace[func_names[0]], system)
+            system.forward = types.MethodType(forward_fn, system)
+
+            # Point C: Capture forward binding
+            if trace is not None:
+                trace.forward_bound_to = bound_name
 
             # 6. Create taskInfo and run forward
             task_info = Info(
@@ -316,6 +409,25 @@ class MASZeroAdapter(AbstractAdapter):
         except Exception as e:
             logger.error("MAS-Zero execution failed: %s", e)
             tracker.set_error(str(e))
+            if trace is not None:
+                trace.execution_error = str(e)
             answer = ""
 
+        # Point D: Save trace
+        if trace is not None:
+            self._save_trace(trace)
+
         return answer, tracker.to_question_log(answer)
+
+    def _save_trace(self, trace: MASZeroTrace) -> None:
+        """Save trace to logs/mas_zero/ as JSON and log summary."""
+        logger.debug("MAS-Zero trace:\n%s", trace.summary())
+        try:
+            trace_dir = os.path.join("logs", "mas_zero")
+            os.makedirs(trace_dir, exist_ok=True)
+            path = os.path.join(trace_dir, f"trace_{trace.question_id}.json")
+            with open(path, "w") as f:
+                f.write(trace.model_dump_json(indent=2))
+            logger.info("Trace saved to %s", path)
+        except OSError as e:
+            logger.warning("Failed to save trace: %s", e)

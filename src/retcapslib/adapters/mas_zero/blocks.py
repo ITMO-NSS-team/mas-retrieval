@@ -155,7 +155,10 @@ RAG_COT_SC = {
     cot_agents = [LLMAgentBase(['thinking', 'answer'], 'RAG-CoT Agent', model=self.node_model, temperature=0.5, usage_callback=self._usage_callback) for _ in range(N)]
 
     def majority_voting(answers):
-        return Counter(answers).most_common(1)[0][0]
+        filtered = [a for a in answers if a.strip()]
+        if not filtered:
+            return ""
+        return Counter(filtered).most_common(1)[0][0]
 
     thinking_mapping = {}
     answer_mapping = {}
@@ -167,8 +170,13 @@ RAG_COT_SC = {
         answer_mapping[answer.content] = answer
 
     best = majority_voting(possible_answers)
-    thinking = thinking_mapping[best]
-    answer = answer_mapping[best]
+    if not best or best not in thinking_mapping:
+        # All agents produced empty answers; use last attempt
+        thinking = Info('thinking', 'fallback', '', None, None, None, -1)
+        answer = Info('answer', 'fallback', '', None, None, None, -1)
+    else:
+        thinking = thinking_mapping[best]
+        answer = answer_mapping[best]
 
     final_answer = self.make_final_answer(thinking, answer)
     return final_answer

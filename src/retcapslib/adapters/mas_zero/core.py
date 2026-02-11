@@ -15,8 +15,12 @@ import uuid
 from collections import namedtuple
 from typing import Any, Callable
 
+import logging
+
 import backoff
 import openai
+
+logger = logging.getLogger(__name__)
 
 Info = namedtuple(
     "Info",
@@ -137,7 +141,8 @@ class LLMAgentBase:
         )
 
         output_infos = []
-        for key, value in response_json.items():
+        for key in self.output_fields:
+            value = response_json.get(key, "")
             info = Info(key, repr(self), value, messages, None, None, iteration_idx)
             output_infos.append(info)
         return output_infos
@@ -192,6 +197,10 @@ def _get_json_response(
             pass
 
     # Fallback: return empty fields
+    logger.warning(
+        "LLM failed to produce valid JSON with fields %s after 5 attempts (model=%s)",
+        output_fields, model,
+    )
     return {k: "" for k in output_fields}
 
 
@@ -227,8 +236,9 @@ class AgentSystem:
 
         answer_content = answer if isinstance(answer, str) else answer.content
 
-        if agents is None:
-            sub_tasks, agents = agents, sub_tasks
+        if agents is None and sub_tasks is not None:
+            agents = sub_tasks
+            sub_tasks = None
 
         if sub_tasks is None and agents is None:
             final = Info(
