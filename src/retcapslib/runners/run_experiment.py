@@ -19,7 +19,7 @@ from typing import Any
 import yaml
 from tqdm import tqdm
 
-from retcapslib.adapters.automas import AutoMASAdapter
+# from retcapslib.adapters.automas import AutoMASAdapter
 from retcapslib.adapters.base import AbstractAdapter
 from retcapslib.adapters.ma_rag import MARagAdapter
 from retcapslib.adapters.mas_zero import MASZeroAdapter
@@ -45,7 +45,7 @@ ADAPTERS: dict[str, type[AbstractAdapter]] = {
     "naive_rag": NaiveRAGAdapter,
     "single_agent": SingleAgentAdapter,
     "swarm_agentic": SwarmAgenticAdapter,
-    "automas": AutoMASAdapter,
+    # "automas": AutoMASAdapter,
     "meta_agent": MetaAgentAdapter,
     "mas_zero": MASZeroAdapter,
     "ma_rag": MARagAdapter,
@@ -459,7 +459,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=str,
-        default="src/retcapslib/cfg_test_hotpot.yaml",
+        default="src/retcapslib/cfg_test_financebench.yaml",
         help="Path to experiment config",
     )
 
