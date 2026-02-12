@@ -139,8 +139,6 @@ class MultiAgentSystem:
 
         if state["is_initial"] and ini_flag == 0:
             instruction = state["instruction"] + "\nThe user input is:\n" + (input_data or "")
-            for all_llm in self.llms.values():
-                all_llm.add_message("The user input is:\n" + (input_data or ""))
         elif ini_flag == 0:
             instruction = state["instruction"]
         else:
@@ -179,8 +177,18 @@ class MultiAgentSystem:
                     results_parts.append(f"[{name}] {result}")
 
                 tool_output = "\n".join(results_parts)
+                all_empty = all(
+                    "No results found" in r for r in results_parts
+                )
+                hint = ""
+                if all_empty:
+                    hint = (
+                        "\nIMPORTANT: Previous retrieval returned no results. "
+                        "Try a DIFFERENT, simpler query. Break multi-hop "
+                        "questions into simpler sub-queries."
+                    )
                 instruction = (
-                    f"Tool results:\n{tool_output}\n\n"
+                    f"Tool results:\n{tool_output}{hint}\n\n"
                     "After completing the current step, please use "
                     "<STATE_TRANS>: <fill in states id> and pass necessary "
                     "information to the next agent."

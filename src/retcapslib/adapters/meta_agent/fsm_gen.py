@@ -141,7 +141,10 @@ def generate_fsm(
         "5. Make sure all agent_ids in the states correspond to the provided "
         "agent_dict.\n"
         "6. The transitions should consider as many as possible situations. "
-        "Which consisit a roadmap for Multi-Agent System in deployment stage."
+        "Which consisit a roadmap for Multi-Agent System in deployment stage.\n"
+        "7. IMPORTANT: Different states should use different agents where "
+        "possible. Avoid assigning all states to a single agent — that "
+        "defeats the purpose of a multi-agent system."
     )
 
     fsm_generator = LLM(
@@ -213,6 +216,17 @@ def validate_fsm(fsm: dict, agent_dict: list[dict]) -> bool:
                 state["state_id"],
             )
             return False
+
+    # Warn (but don't reject) if all non-final states use the same agent
+    non_final = [s for s in fsm["states"] if not s["is_final"]]
+    if len(non_final) > 1:
+        agents_used = {s["agent_id"] for s in non_final}
+        if len(agents_used) == 1:
+            logger.warning(
+                "FSM degenerate: all %d non-final states use agent %s",
+                len(non_final),
+                agents_used.pop(),
+            )
 
     return True
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 from retcapslib.adapters.base import AbstractAdapter
@@ -44,6 +45,17 @@ class MetaAgentAdapter(AbstractAdapter):
         self._states_json: dict | None = None
         self._initialized = False
 
+    def _build_task_description(self) -> str:
+        """Build task description enriched with benchmark context if available."""
+        task = _TASK_DESCRIPTION
+        if self._benchmark_description:
+            task += f"\n\nBenchmark context: {self._benchmark_description}"
+        if self._sample_questions:
+            task += "\n\nExample questions:\n" + "\n".join(
+                f"- {q}" for q in self._sample_questions[:3]
+            )
+        return task
+
     def _init_team(self) -> None:
         """Generate agent team + FSM once (lazy)."""
         if self._initialized:
@@ -52,9 +64,10 @@ class MetaAgentAdapter(AbstractAdapter):
         base_url = os.environ.get("OPENAI_BASE_URL")
         api_key = os.environ.get("OPENAI_API_KEY")
 
+        task = self._build_task_description()
         logger.info("Generating MetaAgent team for model=%s", self._model)
         agents_json, states_json = generate_mas(
-            task=_TASK_DESCRIPTION,
+            task=task,
             model=self._model,
             base_url=base_url,
             api_key=api_key,
@@ -67,6 +80,23 @@ class MetaAgentAdapter(AbstractAdapter):
             len(agents_json),
             len(states_json["states"]),
         )
+
+    _FSM_NOISE_RE = re.compile(
+        r"<STATE_TRANS>:\s*\S+|<INFO>.*?</INFO>|<tool_call>.*?</tool_call>",
+        re.DOTALL,
+    )
+
+    @staticmethod
+    def _clean_answer(answer: str) -> str:
+        """Strip FSM control tokens that should never appear in final answer."""
+        cleaned = MetaAgentAdapter._FSM_NOISE_RE.sub("", answer).strip()
+        return cleaned if cleaned else answer
+
+    def _on_benchmark_change(self) -> None:
+        """Reset cached team/FSM when benchmark switches."""
+        self._initialized = False
+        self._agents_json = None
+        self._states_json = None
 
     @property
     def name(self) -> str:
@@ -156,6 +186,7 @@ class MetaAgentAdapter(AbstractAdapter):
             )
 
             answer, _cost = mas.start(question)
+            answer = self._clean_answer(answer)
 
         except Exception as e:
             tracker.set_error(str(e))
