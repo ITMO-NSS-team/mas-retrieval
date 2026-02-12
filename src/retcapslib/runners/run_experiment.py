@@ -21,6 +21,7 @@ from tqdm import tqdm
 
 from retcapslib.adapters.automas import AutoMASAdapter
 from retcapslib.adapters.base import AbstractAdapter
+from retcapslib.adapters.ma_rag import MARagAdapter
 from retcapslib.adapters.mas_zero import MASZeroAdapter
 from retcapslib.adapters.meta_agent import MetaAgentAdapter
 from retcapslib.adapters.naive_rag import NaiveRAGAdapter
@@ -47,6 +48,7 @@ ADAPTERS: dict[str, type[AbstractAdapter]] = {
     "automas": AutoMASAdapter,
     "meta_agent": MetaAgentAdapter,
     "mas_zero": MASZeroAdapter,
+    "ma_rag": MARagAdapter,
 }
 
 
