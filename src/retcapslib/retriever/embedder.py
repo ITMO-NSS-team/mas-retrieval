@@ -31,14 +31,19 @@ class BGEM3Embedder:
         self._model_name = model_name
 
         if device is None:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            if torch.cuda.is_available():
+                device = "cuda"
+            elif torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
         self._device = device
 
         # Load model with FlagEmbedding
         print(f"Loading BGE-M3 embedder on {device}...")
         self._model = BGEM3FlagModel(
             model_name,
-            use_fp16=use_fp16 and device == "cuda",
+            use_fp16=use_fp16 and device != "cpu",
             device=device,
         )
 
@@ -96,6 +101,8 @@ class BGEM3Embedder:
         if self._device == "cuda":
             torch.cuda.synchronize()
             torch.cuda.empty_cache()
+        elif self._device == "mps":
+            torch.mps.empty_cache()
 
         dense_vecs = output["dense_vecs"]
         if not isinstance(dense_vecs, np.ndarray):

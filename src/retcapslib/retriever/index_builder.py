@@ -128,6 +128,8 @@ def build_index(
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        elif torch.backends.mps.is_available():
+            torch.mps.empty_cache()
 
     print(f"Collection size: {collection.count()} documents")
 

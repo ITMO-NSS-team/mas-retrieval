@@ -18,7 +18,7 @@ retriever:
   index_path: "experiments/data/chroma_index/"
 
 systems:
-  - automas
+  - meta_agent
 
 output:
   results_dir: "results/"

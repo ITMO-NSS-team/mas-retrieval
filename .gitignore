@@ -13,3 +13,5 @@ experiments
 uv.lock
 results/
 .env
+
+.DS_Store

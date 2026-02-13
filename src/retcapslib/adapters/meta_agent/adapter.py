@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import re
@@ -90,7 +91,74 @@ class MetaAgentAdapter(AbstractAdapter):
     def _clean_answer(answer: str) -> str:
         """Strip FSM control tokens that should never appear in final answer."""
         cleaned = MetaAgentAdapter._FSM_NOISE_RE.sub("", answer).strip()
-        return cleaned if cleaned else answer
+        return cleaned
+
+    def describe_system(self) -> str:
+        """Return a human-readable description of the MAS team and FSM."""
+        self._init_team()
+        assert self._agents_json is not None
+        assert self._states_json is not None
+
+        agents = {a["agent_id"]: a for a in self._agents_json}
+        states = self._states_json["states"]
+        transitions = self._states_json["transitions"]
+
+        lines: list[str] = []
+        lines.append("=" * 60)
+        lines.append("META-AGENT SYSTEM")
+        lines.append("=" * 60)
+
+        # ── Agents ──
+        lines.append(f"\nAgents ({len(agents)}):")
+        lines.append("-" * 40)
+        for aid, a in agents.items():
+            tools = ", ".join(a.get("tools", [])) or "(none)"
+            lines.append(f"  [{aid}] {a['name']}")
+            lines.append(f"       tools: {tools}")
+            prompt_preview = a.get("system_prompt", "")[:120].replace("\n", " ")
+            lines.append(f"       prompt: {prompt_preview}...")
+
+        # ── States (FSM nodes) ──
+        lines.append(f"\nStates ({len(states)}):")
+        lines.append("-" * 40)
+        for s in states:
+            agent_name = agents.get(s["agent_id"], {}).get("name", "?")
+            flags = []
+            if s.get("is_initial"):
+                flags.append("INITIAL")
+            if s.get("is_final"):
+                flags.append("FINAL")
+            flag_str = f" [{', '.join(flags)}]" if flags else ""
+            listeners = s.get("listener", [])
+            listener_str = f"  listeners -> {listeners}" if listeners else ""
+            lines.append(
+                f"  State {s['state_id']}: agent [{s['agent_id']}] "
+                f"{agent_name}{flag_str}"
+            )
+            instr_preview = s.get("instruction", "")[:100].replace("\n", " ")
+            lines.append(f"       instruction: {instr_preview}")
+            if listener_str:
+                lines.append(f"      {listener_str}")
+
+        # ── Transitions (FSM edges) ──
+        lines.append(f"\nTransitions ({len(transitions)}):")
+        lines.append("-" * 40)
+        for t in transitions:
+            from_name = "?"
+            to_name = "?"
+            for s in states:
+                if s["state_id"] == t["from_state"]:
+                    from_name = agents.get(s["agent_id"], {}).get("name", "?")
+                if s["state_id"] == t["to_state"]:
+                    to_name = agents.get(s["agent_id"], {}).get("name", "?")
+            lines.append(
+                f"  {t['from_state']} ({from_name}) "
+                f"---> {t['to_state']} ({to_name})"
+            )
+            lines.append(f"       when: {t['condition']}")
+
+        lines.append("=" * 60)
+        return "\n".join(lines)
 
     def _on_benchmark_change(self) -> None:
         """Reset cached team/FSM when benchmark switches."""
@@ -162,6 +230,7 @@ class MetaAgentAdapter(AbstractAdapter):
         self._init_team()
         assert self._agents_json is not None
         assert self._states_json is not None
+        print(self.describe_system())
 
         tracker = TokenTracker(
             question_id=question_id,
@@ -176,7 +245,7 @@ class MetaAgentAdapter(AbstractAdapter):
             tool_executor = self._make_tool_executor(tracker)
 
             mas = MultiAgentSystem(
-                agents_json=self._agents_json,
+                agents_json=copy.deepcopy(self._agents_json),
                 states_json=self._states_json,
                 tool_executor=tool_executor,
                 model=self._model,

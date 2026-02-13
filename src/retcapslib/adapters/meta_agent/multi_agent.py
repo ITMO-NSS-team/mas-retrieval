@@ -139,6 +139,8 @@ class MultiAgentSystem:
 
         if state["is_initial"] and ini_flag == 0:
             instruction = state["instruction"] + "\nThe user input is:\n" + (input_data or "")
+            for all_llm in self.llms.values():
+                all_llm.add_message("The user input is:\n" + (input_data or ""))
         elif ini_flag == 0:
             instruction = state["instruction"]
         else:
@@ -150,6 +152,7 @@ class MultiAgentSystem:
         )
 
         conversation_count = 0
+        empty_retrieval_count = 0
         output = ""
         while conversation_count < 4:
             output = llm.chat(instruction)
@@ -182,11 +185,22 @@ class MultiAgentSystem:
                 )
                 hint = ""
                 if all_empty:
-                    hint = (
-                        "\nIMPORTANT: Previous retrieval returned no results. "
-                        "Try a DIFFERENT, simpler query. Break multi-hop "
-                        "questions into simpler sub-queries."
-                    )
+                    empty_retrieval_count += 1
+                    if empty_retrieval_count >= 3:
+                        hint = (
+                            "\nCRITICAL: Retrieval has returned no results "
+                            f"{empty_retrieval_count} times. STOP retrying. "
+                            "Answer with your best knowledge and transition "
+                            "to the next state using <STATE_TRANS>: <id>."
+                        )
+                    else:
+                        hint = (
+                            "\nIMPORTANT: Previous retrieval returned no results. "
+                            "Try a DIFFERENT, simpler query. Break multi-hop "
+                            "questions into simpler sub-queries."
+                        )
+                else:
+                    empty_retrieval_count = 0
                 instruction = (
                     f"Tool results:\n{tool_output}{hint}\n\n"
                     "After completing the current step, please use "
@@ -217,7 +231,22 @@ class MultiAgentSystem:
             )
             conversation_count += 1
 
-        return output
+        # Loop exhausted — attempt final state transition before returning
+        next_state_id = self._get_next_state(state_id, output)
+        if next_state_id:
+            transition_count += 1
+            if transition_count < max_transitions:
+                info = self._extract_info(output)
+                for listener_id in self.listeners.get(state_id, []):
+                    if listener_id in self.llms:
+                        self.llms[listener_id].add_message(
+                            "Message from " + agent["name"] + "\n" + info
+                        )
+                return self._run_agent(
+                    next_state_id, info, max_transitions, transition_count,
+                )
+
+        return self._extract_info(output)
 
     # ── Public entry point ─────────────────────────────────────
 

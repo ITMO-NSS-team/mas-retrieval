@@ -459,7 +459,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=str,
-        default="src/retcapslib/cfg_test_financebench.yaml",
+        default="src/retcapslib/cfg_test_hotpot.yaml",
         help="Path to experiment config",
     )
 
