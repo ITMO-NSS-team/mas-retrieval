@@ -9,7 +9,7 @@
 }
 
 @misc{islam2023financebench,
-      title={FinanceBench: A New Benchmark for Financial Question Answering}, 
+      title={FinanceBench: A New Benchmark for Financial Question Answering},
       author={Pranab Islam and Anand Kannappan and Douwe Kiela and Rebecca Qian and Nino Scherrer and Bertie Vidgen},
       year={2023},
       eprint={2311.11944},
@@ -20,13 +20,13 @@
 % baselines
 
 @misc{nguyen2025marag,
-      title={MA-RAG: Multi-Agent Retrieval-Augmented Generation via Collaborative Chain-of-Thought Reasoning}, 
+      title={MA-RAG: Multi-Agent Retrieval-Augmented Generation via Collaborative Chain-of-Thought Reasoning},
       author={Thang Nguyen and Peter Chin and Yu-Wing Tai},
       year={2025},
       eprint={2505.20096},
       archivePrefix={arXiv},
       primaryClass={cs.CL},
-      url={https://arxiv.org/abs/2505.20096}, 
+      url={https://arxiv.org/abs/2505.20096},
 }
 
 @inproceedings{zhang-etal-2025-swarmagentic,
@@ -171,7 +171,7 @@ url={https://openreview.net/forum?id=BAakY1hNKS}
 }
 
 
-% 1. MMOA-RAG | NeurIPS 2025 
+% 1. MMOA-RAG | NeurIPS 2025
 % Каждый модуль RAG-пайплайна (rewriter, retriever, selector, generator) —
 % отдельный RL-агент. Совместная оптимизация через MARL (MAPPO) с единой наградой (F1).
 % Обгоняет все baselines на QA-бенчмарках.
@@ -183,7 +183,7 @@ url={https://openreview.net/forum?id=BAakY1hNKS}
   url={https://openreview.net/forum?id=9Ia0KiVAut}
 }
 
-% 2. MADAM-RAG | COLM 2025 
+% 2. MADAM-RAG | COLM 2025
 % Агенты ведут multi-round дебаты по каждому документу, чтобы отсеять
 % дезинформацию и сохранить все валидные ответы для неоднозначных запросов.
 % +11.4% на AmbigDocs, +15.8% на FaithEval vs baselines.
@@ -195,7 +195,7 @@ url={https://openreview.net/forum?id=BAakY1hNKS}
   url={https://openreview.net/forum?id=z1MHB2m3V9}
 }
 
-% 3. OmniSearch | ICLR 2025 
+% 3. OmniSearch | ICLR 2025
 % Адаптивный агент планирования для мультимодального RAG: динамически
 % декомпозирует сложные вопросы в цепочки подзапросов с retrieval-действиями.
 % Также вводит бенчмарк Dyn-VQA с тремя типами «динамических» вопросов.
@@ -225,7 +225,7 @@ url={https://openreview.net/forum?id=BAakY1hNKS}
 % генерирует ответ. Каждый обучен на своём корпусе.
 @article{maps2025,
   title={Multi-agent System with Individual Optimized Expertise for Retrieval Augmented Generation},
-  author={Anonymous},
+  author={Ren, Yingtao and Luo, Xiao and Zhou, Jinzhao and Chang, Yu-Cheng and Lin, Chin-teng},
   journal={ICLR 2026 Submission},
   year={2025},
   url={https://openreview.net/forum?id=VVJeDnuo4c}
@@ -235,7 +235,7 @@ url={https://openreview.net/forum?id=BAakY1hNKS}
 % (duplicate key removed — primary entry is under baselines above)
 
 
-% 7. Self-RAG | ICLR 2024 
+% 7. Self-RAG | ICLR 2024
 % LLM обучается генерировать специальные reflection-токены, которые решают:
 % нужен ли retrieval, релевантен ли документ, подтверждён ли ответ. Адаптивный
 % retrieval on-demand без внешних компонент. Обгоняет ChatGPT+RAG на 6 задачах.
@@ -247,7 +247,7 @@ url={https://openreview.net/forum?id=BAakY1hNKS}
   url={https://openreview.net/forum?id=hSyW5go0v8}
 }
 
-% 8. Speculative RAG | ICLR 2025 
+% 8. Speculative RAG | ICLR 2025
 % Маленькая specialist-модель параллельно генерирует несколько draft-ответов
 % из разных подмножеств документов, а большая generalist-модель верифицирует
 % лучший. Ускоряет RAG и снижает position bias при длинном контексте.
@@ -259,7 +259,7 @@ url={https://openreview.net/forum?id=BAakY1hNKS}
   url={https://openreview.net/forum?id=xgQfWbV6Ey}
 }
 
-% 9. InstructRAG | ICLR 2025 
+% 9. InstructRAG | ICLR 2025
 % LLM сама генерирует rationales (обоснования) для денойзинга retrieved-контента.
 % Self-synthesis: модель создаёт собственные обучающие данные для фильтрации шума.
 % +8.3% на 5 бенчмарках, устойчива к увеличению шума.
@@ -284,7 +284,7 @@ url={https://openreview.net/forum?id=BAakY1hNKS}
 }
 
 @misc{chen2024bge,
-      title={BGE M3-Embedding: Multi-Lingual, Multi-Functionality, Multi-Granularity Text Embeddings Through Self-Knowledge Distillation}, 
+      title={BGE M3-Embedding: Multi-Lingual, Multi-Functionality, Multi-Granularity Text Embeddings Through Self-Knowledge Distillation},
       author={Jianlv Chen and Shitao Xiao and Peitian Zhang and Kun Luo and Defu Lian and Zheng Liu},
       year={2024},
       eprint={2402.03216},
@@ -293,7 +293,7 @@ url={https://openreview.net/forum?id=BAakY1hNKS}
 }
 
 @misc{li2023making,
-      title={Making Large Language Models A Better Foundation For Dense Retrieval}, 
+      title={Making Large Language Models A Better Foundation For Dense Retrieval},
       author={Chaofan Li and Zheng Liu and Shitao Xiao and Yingxia Shao},
       year={2023},
       eprint={2312.15503},
@@ -302,32 +302,76 @@ url={https://openreview.net/forum?id=BAakY1hNKS}
 }
 
 @misc{qian2025metaagentselfevolvingagenttool,
-      title={MetaAgent: Toward Self-Evolving Agent via Tool Meta-Learning}, 
+      title={MetaAgent: Toward Self-Evolving Agent via Tool Meta-Learning},
       author={Hongjin Qian and Zheng Liu},
       year={2025},
       eprint={2508.00271},
       archivePrefix={arXiv},
       primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2508.00271}, 
+      url={https://arxiv.org/abs/2508.00271},
 }
 
 @misc{ke2025maszerodesigningmultiagentsystems,
-      title={MAS-ZERO: Designing Multi-Agent Systems with Zero Supervision}, 
+      title={MAS-ZERO: Designing Multi-Agent Systems with Zero Supervision},
       author={Zixuan Ke and Austin Xu and Yifei Ming and Xuan-Phi Nguyen and Ryan Chin and Caiming Xiong and Shafiq Joty},
       year={2025},
       eprint={2505.14996},
       archivePrefix={arXiv},
       primaryClass={cs.CL},
-      url={https://arxiv.org/abs/2505.14996}, 
+      url={https://arxiv.org/abs/2505.14996},
 }
 
 @misc{zhang2025swarmagenticfullyautomatedagentic,
-      title={SwarmAgentic: Towards Fully Automated Agentic System Generation via Swarm Intelligence}, 
+      title={SwarmAgentic: Towards Fully Automated Agentic System Generation via Swarm Intelligence},
       author={Yao Zhang and Chenyang Lin and Shijie Tang and Haokun Chen and Shijie Zhou and Yunpu Ma and Volker Tresp},
       year={2025},
       eprint={2506.15672},
       archivePrefix={arXiv},
       primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2506.15672}, 
+      url={https://arxiv.org/abs/2506.15672},
 }
 
+
+@inproceedings{salemi2024evaluating,
+  title={Evaluating retrieval quality in retrieval-augmented generation},
+  author={Salemi, Alireza and Zamani, Hamed},
+  booktitle={Proceedings of the 47th International ACM SIGIR Conference on Research and Development in Information Retrieval},
+  pages={2395--2400},
+  year={2024}
+}
+@inproceedings{hasan2025engineering,
+  title={Engineering {RAG} systems for real-world applications: Design, development, and evaluation},
+  author={Hasan, Md Toufique and Waseem, Muhammad and Kemell, Kai-Kristian and Khan, Ayman Asad and Saari, Mika and Abrahamsson, Pekka},
+  booktitle={Euromicro Conference on Software Engineering and Advanced Applications},
+  pages={143--158},
+  year={2025},
+  organization={Springer}
+}
+@inproceedings{wang2025finsage,
+  title={{FinSage}: A multi-aspect {RAG} system for financial filings question answering},
+  author={Wang, Xinyu and Chi, Jijun and Tai, Zhenghan and Kwok, Tung Sum Thomas and He, Hailin and Li, Zhuhong and Hua, Yuchen and Li, Muzhi and Lu, Peng and Wang, Suyucheng and others},
+  booktitle={Proceedings of the 34th ACM International Conference on Information and Knowledge Management},
+  pages={6144--6152},
+  year={2025}
+}
+@inproceedings{gienapp2025viability,
+  title={The viability of crowdsourcing for rag evaluation},
+  author={Gienapp, Lukas and Hagen, Tim and Fr{\"o}be, Maik and Hagen, Matthias and Stein, Benno and Potthast, Martin and Scells, Harrisen},
+  booktitle={Proceedings of the 48th International ACM SIGIR Conference on Research and Development in Information Retrieval},
+  pages={159--169},
+  year={2025}
+}
+@inproceedings{cui2025cirag,
+  title={{CIRAG}: Retrieval-Augmented Language Model with Collective Intelligence},
+  author={Cui, Chenxu and Fan, Haihui and Zhang, Jinchao and Shen, Lin and Li, Bo and Wang, Weiping},
+  booktitle={Proceedings of the 48th International ACM SIGIR Conference on Research and Development in Information Retrieval},
+  pages={1316--1326},
+  year={2025}
+}
+@inproceedings{hoveyda2025adaptive,
+  title={Adaptive orchestration of modular generative information access systems},
+  author={Hoveyda, Mohanna and Oosterhuis, Harrie and de Vries, Arjen P and de Rijke, Maarten and Hasibi, Faegheh},
+  booktitle={Proceedings of the 48th International ACM SIGIR Conference on Research and Development in Information Retrieval},
+  pages={3899--3910},
+  year={2025}
+}

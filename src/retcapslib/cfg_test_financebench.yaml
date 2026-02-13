@@ -7,7 +7,11 @@ benchmarks:
     collection_name: "financebench"
 
 models:
-  primary: "openai/gpt-4o-mini"
+  primary: "meta-llama/llama-3.3-70b-instruct"
+  # "openai/gpt-4o-mini"
+  # "qwen/qwen3-235b-a22b-2507"
+  # "openai/gpt-oss-120b"
+  # "meta-llama/llama-3.3-70b-instruct"
 
 retriever:
   embedder: "BAAI/bge-m3"

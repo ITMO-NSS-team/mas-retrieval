@@ -150,8 +150,16 @@
 %% The abstract is a short summary of the work to be presented in the
 %% article.
 \begin{abstract}
-Auto-generated Multi-Agent Systems (Auto-MAS) promise to automate the design of complex agentic workflows from high-level task descriptions. While effective for coding and reasoning benchmarks, their application to Retrieval-Augmented Generation (RAG) remains unexamined---a critical gap for industrial ``cold-start'' scenarios where labeled data for workflow optimization is unavailable. We hypothesize that zero-shot Auto-MAS generators systematically over-engineer retrieval workflows, introducing mechanisms such as multi-agent debates, reflexion loops, and majority voting that add cost without improving retrieval quality. To our knowledge, this is the first empirical evaluation of leading Auto-MAS frameworks on RAG benchmarks. We compare four zero-shot generators---SwarmAgentic, MetaAgent, MAS-Zero, and a structured workflow approach we propose (AutoMAW)---against manually designed baselines on HotpotQA (multi-hop retrieval) and FinanceBench (tool-augmented financial reasoning). Our results confirm the over-engineering hypothesis: the most complex generated architecture (9 agents with debate and voting) underperforms even a non-agentic baseline, while simpler declarative workflow generation achieves the highest accuracy at moderate cost. We find that structural constraints on the generation process yield more reliable retrieval pipelines than unconstrained code synthesis, and that one-time workflow generation consistently outperforms per-task generation. These findings offer practical guidance for deploying Auto-MAS in data-scarce retrieval settings.
+Zero-shot automated generation of multi-agent workflows promises to simplify design of complex Retrieval-Augmented Generation pipelines, but its impact on retrieval effectiveness in cold-start, tool-intensive settings is unclear. We present the first systematic empirical study comparing four zero-shot Auto-MAS (Multi-Agent System) generators (SwarmAgentic, MetaAgent, MAS-Zero, and our declarative workflow method AutoMAW) against manually engineered baselines on two representative retrieval tasks: multi-hop open-domain question-answering and tool-augmented financial questioning. %We evaluate accuracy, token-level retrieval fidelity, average retrieval calls, and cost to answer.
+Contrary to expectations from reasoning benchmarks, we find that unconstrained, code-generating agent architectures frequently over-engineer retrieval workflows—incurring higher latency and cost while yielding no accuracy benefit, and sometimes performing worse than simple baselines. Constraining generation to declarative workflow graphs produces more robust, interpretable, and cost-effective retrieval pipelines, and one-time dataset-level generation is generally more stable than per-task regeneration. These results offer practical guidance for deploying Auto-MAS in data-scarce information retrieval applications.
 \end{abstract}
+\begin{comment}
+Retrieval-Augmented Generation (RAG) systems are increasingly deployed in real-world information retrieval (IR) pipelines. However, designing robust retrieval orchestration (query rewriting, multi-hop chaining, tool routing) remains largely manual. A recent line of work proposes automatically generating multi-agent workflows from high-level task descriptions. Yet it remains unclear whether such auto-generated architectures improve retrieval effectiveness, particularly in zero-shot, cold-start IR settings.
+%Auto-generated Multi-Agent Systems (Auto-MAS) promise to automate the design of complex agentic workflows from high-level task descriptions. While effective for coding and reasoning benchmarks, their application to Retrieval-Augmented Generation (RAG) remains unexamined, a critical gap in industrial ``cold-start'' scenarios where labeled data for workflow optimization is unavailable.
+In this paper, we hypothesize that zero-shot MAS generators systematically over-engineer retrieval workflows, introducing mechanisms such as multi-agent debates, reflexion loops, and majority voting that add cost without improving retrieval quality. To the best of our knowledge, this is the first empirical evaluation of zero-shot MAS generation frameworks on RAG benchmarks. We compare four zero-shot generators, SwarmAgentic, MetaAgent, MAS-Zero, and our novel structured workflow approach (AutoMAW), against manually designed baselines on HotpotQA (multi-hop retrieval) and FinanceBench (tool-augmented financial reasoning). Our results confirm the over-engineering hypothesis: the most complex generated architecture (9 agents with debate and voting) underperforms even a non-agentic baseline, while simpler declarative workflow generation achieves the highest accuracy at moderate cost. We find that structural constraints on the generation process yield more reliable retrieval pipelines than unconstrained code synthesis, and that one-time workflow generation consistently outperforms per-task generation.
+\end{comment}
+
+
 
 %%
 %% The code below is generated by the tool at http://dl.acm.org/ccs.cfm.
@@ -178,7 +186,7 @@ Auto-generated Multi-Agent Systems (Auto-MAS) promise to automate the design of 
 %%
 %% Keywords. The author(s) should pick words that accurately describe
 %% the work being presented. Separate the keywords with commas.
-\keywords{automated multi-agent systems, retrieval-augmented generation, agentic workflows}
+\keywords{Automated multi-agent systems, retrieval-augmented generation, agentic workflows}
 
 %%
 %% This command processes the author and affiliation and title
@@ -186,127 +194,74 @@ Auto-generated Multi-Agent Systems (Auto-MAS) promise to automate the design of 
 \maketitle
 
 \section{Introduction}
+Retrieval-augmented generation (RAG) systems are rapidly becoming a core component of real-world information retrieval pipelines, combining dense retrieval, reranking, and language-model synthesis to answer knowledge-intensive queries~\cite{salemi2024evaluating,gienapp2025viability}. Designing effective retrieval orchestration~\cite{cui2025cirag,hoveyda2025adaptive}, how queries are rewritten, when to call retrievers or rerankers, how to chain multi-hop lookups, and how to route tool-enabled computations, remains largely manual~\cite{hasan2025engineering}. This engineering burden is especially acute in domain-specific deployments (e.g., financial analysis, technical support)~\cite{wang2025finsage} where retrieval errors or misplaced tool calls can produce incorrect or harmful outputs. For the information retrieval community, the central question is not only whether a model can generate text, but whether automated orchestration improves retrieval effectiveness, robustness, and cost-efficiency in production-like settings.
 
-Retrieval-Augmented Generation (RAG) \cite{lewis2020retrieval} is evolving from static linear pipelines\cite{hong2024metagpt, wu2024autogen, li2023camel, nguyen2025marag, maps2025} to dynamic Multi-Agent Systems (MAS) capable of planning and self-correction. However, manually engineering these workflows remains a brittle and labor-intensive bottleneck. To address this, Automated Multi-Agent Systems (Auto-MAS) have emerged, treating workflow generation as an optimization problem. Leading approaches like AFlow \citep{zhang2025aflow}, MaAS \cite{zhang2025agentic-supernet}, and GPTSwarm \cite{gptswarm24} achieve state-of-the-art results by iteratively refining architectures against labeled training sets. Similarly, MAS-GPT \cite{ye2025mas} relies on fine-tuning LLMs on extensive agent interaction corpora.
+A new line of work proposes automatically synthesizing multi-agent workflows from high-level task descriptions: LLMs generate agent roles, coordination protocols, and executable orchestration code so a system can plan, retrieve, verify, and synthesize answers without hand-crafted pipelines. Multi-Agent Systems (MAS) for RAG have shown promise in controlled settings: MA-RAG~\cite{nguyen2025marag} uses plan-execute-summarize chains, MAPS~\cite{maps2025} optimizes individual RAG agents, MMOA-RAG~\cite{chen2025mmoa} applies multi-agent reinforcement learning, and MADAM-RAG~\cite{han2025madamrag} employs inter-agent debate to resolve conflicting evidence. However, all of these require manual design of a fixed agent topology. Among automated multi-agent system (Auto-MAS), frameworks such as AFlow~\cite{zhang2025aflow}, GPTSwarm~\cite{gptswarm24}, ADAS~\cite{hu2024ADAS}, and MAS-GPT~\cite{ye2025mas} treat workflow generation as an optimization problem, achieving strong results on coding and reasoning benchmarks, but rely on iterative refinement against labeled data. Zero-shot generators like SwarmAgentic~\cite{zhang2025swarmagenticfullyautomatedagentic}, MetaAgent~\cite{qian2025metaagentselfevolvingagenttool}, and MAS-Zero~\cite{ke2025maszerodesigningmultiagentsystems} remove this data dependency. These Auto-MAS generators show promising results on reasoning and code-centric benchmarks, but their impact on retrieval-centric tasks is under-explored. Retrieval introduces unique failure modes—cascading errors across chained queries, fragile tool invocations, and sensitive cost–accuracy trade-offs—that differ from reasoning-only evaluations. In cold-start scenarios, where labeled workflow data is unavailable and per-task feedback is limited, unconstrained code generation and elaborate coordination may increase latency and cost while offering little or no retrieval benefit.
 
-These data-dependent paradigms\cite{chen2025mmoa, asai2024selfrag} face a critical barrier in industrial applications known as the "cold-start" problem. In specialized domains such as financial forensics or proprietary tech support, labeled workflow data is unavailable, and creating it is prohibitively expensive. This necessitates zero-shot generators like SwarmAgentic \cite{zhang-etal-2025-swarmagentic}, MetaAgent\cite{qian2025metaagentselfevolvingagenttool}, MAS-Zero\cite{ke2025maszerodesigningmultiagentsystems} which synthesize agent teams from high-level descriptions without prior training. While SwarmAgentic outperforms methods like ADAS \cite{hu2024ADAS} on reasoning benchmarks, its efficacy in RAG scenarios remains unproven. Specifically, retrieval tasks introduce unique challenges such as noisy context\cite{wei2025instructrag} and strict tool orchestration that purely reasoning-based benchmarks do not capture.
 
-This gap is critical because industrial RAG demands reliability over creativity. For instance, quantitative reasoning over financial filings (FinanceBench \cite{islam2023financebench}) requires precise coordination between retrieval and calculation tools. A hallucinated workflow that bypasses necessary tool calls is unacceptable in such high-stakes environments.
+This paper presents a systematic empirical study of zero-shot Auto-MAS generators from a retrieval effectiveness perspective\footnote{Code and experiment configurations are available at \url{https://anonymous.4open.science/r/XXXX}}. We evaluate multiple state-of-the-art zero-shot generators alongside manually designed baselines on representative retrieval tasks that span multi-hop academic questions and tool-augmented industrial queries. Our experiments examine accuracy, token-level retrieval fidelity, invocation/chain length, and cost to answer, and contrast one-time (dataset-level) generation with per-task regeneration. We ask the following research questions: (1) Do auto-generated agentic architectures improve retrieval performance under zero-shot conditions? (2) How does architectural complexity affect the cost–accuracy frontier for retrieval? (3) Can structural constraints on generation yield more reliable retrieval pipelines than unconstrained code synthesis? Our findings show that, in zero-shot retrieval settings, excessive agentic complexity often degrades effectiveness and increases cost, while constrained, declarative workflow specifications produce more robust and economical retrieval pipelines—insights that have direct implications for deploying RAG systems in data-scarce IR applications.
+
+\begin{comment}
+Retrieval-Augmented Generation (RAG) \cite{lewis2020retrieval} is evolving from static linear pipelines~\cite{hong2024metagpt, wu2024autogen, li2023camel, nguyen2025marag, maps2025} to dynamic Multi-Agent Systems (MAS) capable of planning and self-correction. However, manually engineering these workflows remains a brittle and labor-intensive bottleneck. To address this, Automated Multi-Agent Systems (Auto-MAS) have emerged, treating workflow generation as an optimization problem. Leading approaches such as AFlow \citep{zhang2025aflow}, MaAS \cite{zhang2025agentic-supernet}, and GPTSwarm \cite{gptswarm24} achieve state-of-the-art results by iteratively refining architectures on labeled training sets. MAS-GPT \cite{ye2025mas} relies on fine-tuning LLMs on extensive agent interaction corpora.
+
+These data-dependent paradigms~\cite{chen2025mmoa, asai2024selfrag} face a critical barrier in industrial applications known as the "cold-start" problem. In specialized domains such as financial forensics or proprietary tech support, labeled workflow data is unavailable, and creating it is prohibitively expensive. This necessitates zero-shot generators like SwarmAgentic \cite{zhang-etal-2025-swarmagentic}, MetaAgent\cite{qian2025metaagentselfevolvingagenttool}, MAS-Zero\cite{ke2025maszerodesigningmultiagentsystems}, which synthesize agent teams from high-level descriptions without prior training. While SwarmAgentic outperforms methods like ADAS \cite{hu2024ADAS} on reasoning benchmarks, its efficacy in RAG scenarios remains unproven. Specifically, retrieval tasks introduce unique challenges such as noisy context\cite{wei2025instructrag} and strict tool orchestration that purely reasoning-based benchmarks do not capture.
+
+This gap is critical because industrial RAG demands reliability over creativity. For instance, quantitative reasoning over financial filings %(FinanceBench \cite{islam2023financebench})
+requires precise coordination between retrieval and calculation tools. A hallucinated workflow that bypasses necessary tool calls is unacceptable in such high-stakes environments.
 
 \textbf{Related Work.}
-Multi-agent approaches to RAG have shown promise in controlled settings: MA-RAG~\cite{nguyen2025marag} uses plan-execute-summarize chains, MAPS~\cite{maps2025} optimizes individual RAG agents, MMOA-RAG~\cite{chen2025mmoa} applies multi-agent reinforcement learning, and MADAM-RAG~\cite{han2025madamrag} employs inter-agent debate to resolve conflicting evidence. However, all of these manually design a fixed agent topology. On the automation side, frameworks such as AFlow~\cite{zhang2025aflow}, GPTSwarm~\cite{gptswarm24}, ADAS~\cite{hu2024ADAS}, and MAS-GPT~\cite{ye2025mas} treat workflow generation as an optimization problem, achieving strong results on coding and reasoning benchmarks, but rely on iterative refinement against labeled data. Zero-shot generators like SwarmAgentic~\cite{zhang2025swarmagenticfullyautomatedagentic}, MetaAgent~\cite{qian2025metaagentselfevolvingagenttool}, and MAS-Zero~\cite{ke2025maszerodesigningmultiagentsystems} remove this data dependency, yet none have been evaluated on retrieval tasks. This paper addresses exactly this gap: we present the first empirical evaluation of zero-shot Auto-MAS generators on RAG benchmarks, testing whether architectures designed for open-ended reasoning transfer effectively to the tool-intensive, noise-sensitive demands of information retrieval.
+Multi-agent approaches to RAG have shown promise in controlled settings: MA-RAG~\cite{nguyen2025marag} uses plan-execute-summarize chains, MAPS~\cite{maps2025} optimizes individual RAG agents, MMOA-RAG~\cite{chen2025mmoa} applies multi-agent reinforcement learning, and MADAM-RAG~\cite{han2025madamrag} employs inter-agent debate to resolve conflicting evidence. However, all of these require manual design of a fixed agent topology. On the automation side, frameworks such as AFlow~\cite{zhang2025aflow}, GPTSwarm~\cite{gptswarm24}, ADAS~\cite{hu2024ADAS}, and MAS-GPT~\cite{ye2025mas} treat workflow generation as an optimization problem, achieving strong results on coding and reasoning benchmarks, but rely on iterative refinement against labeled data. Zero-shot generators like SwarmAgentic~\cite{zhang2025swarmagenticfullyautomatedagentic}, MetaAgent~\cite{qian2025metaagentselfevolvingagenttool}, and MAS-Zero~\cite{ke2025maszerodesigningmultiagentsystems} remove this data dependency, yet none have been evaluated on retrieval tasks. This paper addresses exactly this gap.
 
-\section{Experimental Setup}
+\textbf{Contributions.} %We present first empirical evaluation of zero-shot Auto-MAS generators on RAG benchmarks\footnote{Code and experiment configurations are available at \url{https://anonymous.4open.science/r/XXXX}}. We compare our proposed declarative workflow generation approach, AutoMAW, against three leading automated generators (SwarmAgentic, MetaAgent, and MAS-Zero) and manually designed baselines on HotpotQA and FinanceBench. Our analysis reveals that auto-generated agents systematically over-engineer retrieval workflows, and that structural constraints on the generation process yield more reliable pipelines than unconstrained code synthesis.
+We provide the first systematic evaluation of zero-shot multi-agent workflow generators from a retrieval effectiveness perspective\footnote{Code and experiment configurations are available at \url{https://anonymous.4open.science/r/amaw-sigir26}}. We show that architectural complexity does not monotonically improve retrieval performance and may degrade it under zero-shot conditions. We demonstrate that declaratively constrained workflow generation yields superior retrieval robustness compared to unconstrained code synthesis. We provide practical guidance for cold-start RAG deployment in data-scarce IR scenarios.
+\end{comment}
 
-We design our experiments to simulate a "cold-start" industrial scenario: the system receives a dataset description and a set of generic tools but has no access to training examples (Zero-Shot).
+\section{Evaluation Setup}
 
-All systems share the same retrieval pipeline: BGE-M3 retrieves the top-20 results, which are then re-ranked by bge-reranker-v2-m3 to the final top-10~\cite{chen2024bge, li2023making}.
+We design our experiments to simulate a ``cold-start'' industrial scenario: the system receives a dataset description and a set of generic tools but has no access to training examples (Zero-Shot).
+
+All systems share the same retrieval pipeline: BGE-M3 retrieves the top-20 results, which are then re-ranked by bge-reranker-v2-m3 to the final top-10~\cite{chen2024bge, li2023making}. Retrieval and reranking are exposed as independent tools, allowing generated systems to invoke them separately or compose them freely.
 
 \subsection{Datasets}
 We selected two benchmarks that represent contrasting dimensions of RAG complexity, ensuring a comprehensive evaluation of the generated architectures across both academic and industrial scenarios.
 
 \textbf{HotpotQA (Multi-hop Retrieval)} \cite{yang2018hotpotqa}: An academic benchmark requiring multi-step reasoning over Wikipedia documents. We use the \textit{fullwiki} setting (open-domain retrieval) and sample a stratified subset of 500 questions from the validation set (distractor). This dataset tests the Auto-MAS's ability to autonomously discover chaining strategies (e.g., retrieving an entity, reading its content, and generating a secondary query) without explicit supervision.
 
-\textbf{FinanceBench (Tool-Augmented Reasoning)} \cite{islam2023financebench}: An industrial benchmark consisting of 150 questions derived from real-world financial reports. Unlike HotpotQA, this task requires precise numerical extraction and calculation, stressing the system's ability to generate specialized tool-using agents (e.g., a "Calculator" or "Financial Analyst"). Crucially, it represents a data-scarce scenario where no training examples are available for workflow optimization, forcing the system to rely entirely on zero-shot architectural generation.
+\textbf{FinanceBench (Tool-Augmented Reasoning)} \cite{islam2023financebench}: An industrial benchmark consisting of 150 questions derived from real-world financial reports. Unlike HotpotQA, it requires precise numerical extraction and calculation, stressing the system's ability to generate specialized tool-using agents (e.g., a ``Calculator'' or ``Financial Analyst''). Crucially, it represents a data-scarce scenario where no training examples are available for workflow optimization, forcing the system to rely entirely on zero-shot architectural generation.
 
 \subsection{Systems Under Evaluation}
 
 We compare several approaches to multi-agent RAG, spanning non-agentic baselines, a fixed multi-agent pipeline, and four inference-time MAS generation frameworks. All systems operate in a zero-shot setting without training or validation data; for frameworks that include optimization loops in their full formulations, we evaluate only the single-pass generation variant.
 
-\textbf{Naive RAG}. A straightforward baseline that retrieves top-k passages, concatenates them as context, and prompts the LLM to generate an answer in a single step. This non-agentic approach serves as a lower bound to assess the value of multi-agent orchestration over direct retrieval augmentation.
+\textbf{Naive RAG}. A straightforward baseline that retrieves top-k passages, concatenates them as context, and prompts the LLM to generate an answer in a single step. This non-agentic approach provides a lower bound for assessing the value of multi-agent orchestration over direct retrieval augmentation.
 
-\textbf{Single-Agent RAG}. An iterative tool-calling agent that can perform multiple retrieval and reasoning steps before generating a final answer. The agent has access to retrieve, rerank, and calculate tools, allowing it to decompose complex questions into sub-queries, gather evidence through sequential retrieval calls, and perform numerical computations. Unlike Naive RAG's fixed pipeline, this baseline demonstrates adaptive information gathering through tool use, while still operating as a single autonomous agent without multi-agent coordination.
+\textbf{Single-Agent RAG}. An iterative tool-calling agent that can perform multiple retrieval and reasoning steps before generating a final answer. The agent has access to tools for retrieving, reranking, and calculating, allowing it to decompose complex questions into subqueries, gather evidence through sequential retrieval calls, and perform numerical computations. Unlike Naive RAG's fixed pipeline, this baseline demonstrates adaptive information gathering through tool use, while still operating as a single autonomous agent without multi-agent coordination.
 
-\textbf{MA-RAG}~\cite{nguyen2025marag} implements a plan-execute-summarize pipeline with a fixed graph topology. A planning agent decomposes the question into sub-tasks, each classified as question-answering (requiring retrieval) or aggregation (synthesizing prior results). QA steps follow a five-stage sequence---query definition, retrieval, reranking, per-document extraction, and answer generation---while aggregation steps reason over accumulated context without retrieval. A final summarization agent synthesizes all step-level outputs into the answer.
+\textbf{MA-RAG}~\cite{nguyen2025marag} implements a plan-execute-summarize pipeline with a fixed graph topology. A planning agent decomposes the question into sub-tasks, each classified as question-answering (requiring retrieval) or aggregation (synthesizing prior results). QA steps follow a five-stage sequence: query definition, retrieval, reranking, per-document extraction, and answer generation. Aggregation steps reason over accumulated context without retrieval. A final summarization agent synthesizes all step-level outputs into the answer.
 
 \textbf{MetaAgent}~\cite{qian2025metaagentselfevolvingagenttool} implements a learning-by-doing approach where retrieval strategies
-evolve through task experience. A tool router maps natural language help requests
-to retrieval tools, while self-reflection after each task refines search planning
-and builds a persistent knowledge base from interaction history, enabling continuous improvement without training data. However, the system generates individual systems for each query. Hence, does not support 
+evolve through task experience. A tool router maps natural language help requests to retrieval tools, while self-reflection after each task refines search planning and builds a persistent knowledge base from interaction history, enabling continuous improvement without training data. However, the system generates a separate system for each query. Hence, does not support
 
-\textbf{MAS-Zero}~\cite{ke2025maszerodesigningmultiagentsystems} is an inference-time framework for automatic multi-agent system design that similarly operates without requiring validation data, but focuses on designing and refining entire agent system architectures rather than retrieval strategies.  The framework uses a meta-agent to iteratively design, critique, and refine multi-agent configurations through three key steps: MAS-Init executes predefined building blocks (CoT, CoT-SC, Debate, Self-Refine), MAS-Evolve performs meta-level design by decomposing problems into sub-tasks and assigning specialized sub-MAS configurations while incorporating meta-feedback on solvability and completeness, and MAS-Verify selects the most reliable solution from all candidates.
+\textbf{MAS-Zero}~\cite{ke2025maszerodesigningmultiagentsystems} is an inference-time framework for automatic multi-agent system design that, like ours, operates without requiring validation data, but focuses on designing and refining entire agent system architectures rather than retrieval strategies.  The framework uses a meta-agent to iteratively design, critique, and refine multi-agent configurations through three key steps: MAS-Init executes predefined building blocks (CoT, CoT-SC, Debate, Self-Refine), MAS-Evolve performs meta-level design by decomposing problems into sub-tasks and assigning specialized sub-MAS configurations while incorporating meta-feedback on solvability and completeness, and MAS-Verify selects the most reliable solution from all candidates.
 
-\textbf{SwarmAgentic}~\cite{zhang2025swarmagenticfullyautomatedagentic} generates multi-agent teams from scratch given only a task description. An LLM defines a set of agent roles (with names, descriptions, and capabilities) together with a workflow specifying their collaboration protocol, then produces executable coordination code. We evaluate the single-pass generation variant, where one team configuration is produced and reused across all questions, without the iterative Particle Swarm Optimization loop described in the original work.
+\textbf{SwarmAgentic}~\cite{zhang2025swarmagenticfullyautomatedagentic} generates multi-agent teams from scratch, given only a task description. An LLM defines a set of agent roles (with names, descriptions, and capabilities) together with a workflow specifying their collaboration protocol, then produces executable coordination code. We evaluate the single-pass generation variant, in which a single team configuration is produced and reused across all questions, without the iterative Particle Swarm Optimization loop described in the original work.
 
-\textbf{AutoMAW.} In addition to the above frameworks, we propose a structured workflow generation approach (\textbf{AutoMAW}) that constructs multi-agent systems through declarative specification rather than executable code synthesis. The framework operates in two stages: first generating a pool of specialized agents with distinct roles and capabilities, then establishing coordination links between them to form a directed workflow graph. Unlike code-generating approaches, AutoMAW decouples workflow topology from runtime execution, constraining the generation space to agent roles and their coordination structure. We include this method to examine whether explicit structural constraints on the generation process offer advantages for retrieval tasks.
+In addition to the above frameworks, we propose a structured workflow generation approach (\textbf{AutoMAW}) that constructs multi-agent systems through declarative specification rather than executable code synthesis. The framework operates in two stages: first, generating a pool of specialized agents with distinct roles and capabilities, then establishing coordination links between them to form a directed workflow graph. Unlike code-generating approaches, AutoMAW decouples workflow topology from runtime execution, constraining the generation space to agent roles and their coordination structure. We include this method to examine whether explicit structural constraints on the generation process offer advantages for retrieval tasks.
 
-MetaAgent, MAS-Zero, SwarmAgentic and AutoMAW are evaluated in two configurations: \textbf{One-Time Generation} — a single MAS is generated once and reused across all benchmark tasks, and \textbf{Per-Task Generation} — a new MAS is generated independently for each task.
+MetaAgent, MAS-Zero, SwarmAgentic, and AutoMAW are evaluated in two configurations. In \textbf{One-Time Generation}, the generator receives a high-level dataset description (domain, task type, and available tools) and produces a single MAS architecture that is reused across all benchmark questions without modification. In \textbf{Per-Task Generation}, the generator additionally receives each individual question and produces a new MAS independently for every task instance.
 
 \subsection{Evaluation Metrics}
-Given the open-ended nature of the generated answers, we use LLM-as-a-Judge~\cite{li2025genjudge} accuracy as the primary metric. GPT-4o-mini serves as the judge, comparing each system output against the gold answer and returning a binary correct/incorrect verdict. We additionally report token-level F1 on HotpotQA to enable comparison with prior work, and total inference cost (USD) per benchmark to quantify the cost--accuracy trade-off across systems.
+Given the open-ended nature of the generated answers, we use LLM-as-a-Judge~\cite{li2025genjudge} accuracy as the primary metric. GPT-4o-mini serves as the judge, comparing each system output against the gold answer and returning a binary correct/incorrect verdict. We manually validated a random subset of 50 predictions and observed 94\% agreement with the LLM judge. We additionally report token-level F1 on HotpotQA to enable comparison with prior work, and total inference cost (USD) per benchmark to quantify the cost--accuracy trade-off across systems. Baseline results are averaged over three runs; Auto-MAS systems are evaluated in a single run per configuration, consistent with the evaluation protocols of the original frameworks.
 
 \section{Results and Analysis}
 
 \subsection{Main Results}
 
-Table~\ref{tab:main_results} presents the performance of all evaluated systems across both benchmarks. All systems use GPT-4o-mini as the underlying LLM to ensure a fair comparison.
-
-\iffalse
-\begin{table}[h]
-  \centering
-  \caption{Accuracy and cost comparison on FinanceBench and HotpotQA. All systems use GPT-4o-mini. Best accuracy results per dataset are bolded.}
-  \label{tab:main_results}
-  \begin{tabular}{lccccc}
-    \toprule
-    & \multicolumn{2}{c}{\textbf{FinanceBench}} & \multicolumn{2}{c}{\textbf{HotpotQA}} \\
-    \cmidrule(lr){2-3} \cmidrule(lr){4-5}
-    \textbf{System} & Acc. (\%) & Cost (\$) & Acc. (\%) & Cost (\$) \\
-    \midrule
-    Naive RAG        & 43.80 & 0.20 & 56.67 & 0.11 \\
-    Single-Agent     & 52.67 & 1.51 & 73.33 & 1.17 \\
-    \midrule
-    \multicolumn{5}{l}{\textbf{One-Time Generation}} \\
-    \midrule
-    SwarmAgentic     & 56.70 & ... & 71.00 & ... \\
-    MetaAgent        & 52.00 & 2.41 & ... & ... \\
-    MAS-Zero         & 42.90 & 0.76 & 72.60 & 0.36 \\
-    AutoMAW          & ... & ... & ... & ... \\
-    \midrule
-    \multicolumn{5}{l}{\textbf{Per-Task Generation}} \\
-    \midrule
-    SwarmAgentic     & 50.00 & ... & ... & ... \\
-    MetaAgent        & ... & ... & ... & ... \\
-    MAS-Zero         & ... & ... & ... & ... \\
-    AutoMAW          & ... & ... & ... & ... \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-\fi
-
-% \begin{table}[h]
-%   \centering
-%   \caption{Accuracy and context recall comparison on FinanceBench and HotpotQA. All systems use GPT-4o-mini. Best accuracy results per dataset are bolded.}
-%   \label{tab:main_results}
-%   \begin{tabular}{lccc}
-%     \toprule
-%     & \textbf{FinanceBench} & \multicolumn{2}{c}{\textbf{HotpotQA}} \\
-%     \cmidrule(lr){2-2} \cmidrule(lr){3-4}
-%     \textbf{System} & Acc. (\%) & Acc. (\%) & Context Recall (\%) \\
-%     \midrule
-%     Naive RAG        & 43.80 & 56.67 & ... \\
-%     Single-Agent     & 52.67 & 73.33 & ... \\
-%     MA-RAG           & ... & ... & ... \\
-%     \midrule
-%     \multicolumn{4}{l}{\textbf{One-Time Generation}} \\
-%     \midrule
-%     SwarmAgentic     & 56.70 & 71.00 & ... \\
-%     MetaAgent        & 52.00 & ... & ... \\
-%     MAS-Zero         & 42.90 & 72.60 & ... \\
-%     AutoMAW          & ... & ... & ... \\
-%     \midrule
-%     \multicolumn{4}{l}{\textbf{Per-Task Generation}} \\
-%     \midrule
-%     SwarmAgentic     & 50.00 & ... & ... \\
-%     MetaAgent        & 46.80 & ... & ... \\
-%     MAS-Zero         & 32.70 & 61.40 & 70.90 \\
-%     AutoMAW          & ... & ... & ... \\
-%     \bottomrule
-%   \end{tabular}
-% \end{table}
+Table~\ref{tab:main_results} presents the performance of all evaluated systems. Moreover, we analyze systems from a cost–effectiveness frontier perspective (Figure~\ref{fig:pareto}), a critical consideration in real-world retrieval deployment. All systems use GPT-4o-mini as the underlying LLM to ensure a fair comparison.
 
 \begin{table}[h]
   \centering
-  \caption{Accuracy, F1 score, and cost comparison on FinanceBench and HotpotQA. All systems use GPT-4o-mini. Best accuracy results per dataset are bolded.}
+  \caption{Accuracy, F1 score, and cost comparison on FinanceBench and HotpotQA. All systems use GPT-4o-mini. Best results per dataset are bolded.}
   \label{tab:main_results}
   \begin{tabular}{lcccccc}
     \toprule
@@ -315,22 +270,22 @@ Table~\ref{tab:main_results} presents the performance of all evaluated systems a
     \textbf{System} & Acc. (\%) & Cost (\$) & Acc. (\%) & F1 (\%) & Cost (\$) \\
     \midrule
     \multicolumn{6}{l}{\textit{Manually Designed Systems}} \\
-    Naive RAG        & 43.80 & 0.20 & 56.67 & ... & 0.11 \\
-    Single-Agent     & 52.67 & 1.51 & 73.33 & ... & 1.17 \\
-    MA-RAG           & 32.00   & 0.81  & ...   & ... & ...  \\
+    Naive RAG        & 43.80 & 0.20 & 56.67 & 18.20 & 0.11 \\
+    Single-Agent     & 52.67 & 1.51 & 73.33 & 7.56 & 1.17 \\
+    MA-RAG           & 32.00   & 0.81  & 62.40   & 40.40 & 1.28  \\
     \midrule
     \multicolumn{6}{l}{\textit{Automated Design: One-Time Generation}} \\
-    SwarmAgentic     & 56.70 & ...  & 71.00 & ... & ...  \\
-    MetaAgent        & 52.00 & 2.41 & 4.30  & ... & 24.86 \\
+    SwarmAgentic     & 56.70 & 0.56  & 71.00 & 3.70 & 1.85  \\
+    MetaAgent        & 52.00 & 2.41 & 66.80  & 12.00 & 2.03 \\
     % MetaAgent*       & -- & -- & --  & -- & -- \\
-    MAS-Zero         & 42.90 & 0.76 & 72.60 & ... & 0.36 \\
+    MAS-Zero         & 42.90 & 0.76 & 72.60 & 32.70 & 0.36 \\
     AutoMAW          & 66.00   & 1.65  & 85.80   & 14.60 & 2.67  \\
     \midrule
     \multicolumn{6}{l}{\textit{Automated Design: Per-Task Generation}} \\
-    SwarmAgentic     & 50.00 & ...  & 69.90 & ... & ...  \\
-    MetaAgent        & 46.80 & 1.02 & 52.20 & ... & 1.91 \\
-    MAS-Zero         & 32.70 & 0.71 & 61.40 & ... & 0.46 \\
-    AutoMAW          & ...   & ...  & ...   & ... & ...  \\
+    SwarmAgentic     & 50.00 & 0.80  & 69.90 & 4.60 & 2.66  \\
+    MetaAgent        & 46.80 & 1.02 & 52.20 & 10.30 & 1.91 \\
+    MAS-Zero         & 32.70 & 0.71 & 61.40 & 37.30 & 0.46 \\
+    AutoMAW          & 67.33   & 2.75  & 82.40   & 10.60 & 3.73  \\
     \bottomrule
   \end{tabular}
 
@@ -341,18 +296,38 @@ Table~\ref{tab:main_results} presents the performance of all evaluated systems a
 \centering
 \begin{minipage}{0.48\textwidth}
   \centering
-  \includegraphics[width=\linewidth]{pareto_hotpotqa.pdf}
+  \includegraphics[width=\linewidth]{pareto_hotpotqa_x1.2.pdf}
   \centerline{(a) HotpotQA}
 \end{minipage}\hfill
 \begin{minipage}{0.48\textwidth}
   \centering
-  \includegraphics[width=\linewidth]{pareto_financebench.pdf}
+  \includegraphics[width=\linewidth]{pareto_financebench_x1.2.pdf}
   \centerline{(b) FinanceBench}
 \end{minipage}
 \caption{Cost--accuracy Pareto fronts on both benchmarks. Systems closer to the top-left corner offer better accuracy per dollar. MetaAgent OT on HotpotQA (\$24.86, 4.3\%) is omitted for readability.}
 \label{fig:pareto}
 \Description{Pareto front of multi-agent system architectures on HotpotQA and FinanceBench benchmarks.}
 \end{figure*}
+
+\subsection{LLM Backbone Comparison}
+
+Our main experiments use GPT-4o-mini to isolate architectural effects. To examine whether findings generalize across LLM backbones, we evaluate three systems on FinanceBench with models of varying scale and family (Table~\ref{tab:backbone}).
+
+\begin{table}[h]
+  \centering
+  \caption{FinanceBench accuracy (\%) across LLM backbones. AutoMAW operates in per-task generation mode.}
+  \label{tab:backbone}
+  \small
+  \begin{tabular}{lccc}
+    \toprule
+    \textbf{System} & \textbf{Qwen3-235B} & \textbf{GPT-OSS-120B} & \textbf{LLaMA-3.3-70B} \\
+    \midrule
+    Naive RAG    & 44.70 & 33.33 & 48.00 \\
+    Single-Agent & 66.00 & 56.70 & 41.30 \\
+    AutoMAW      & 80.70 & 78.30 & 71.10 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
 \subsection{Discussion}
 
@@ -362,19 +337,19 @@ The results in Table~\ref{tab:main_results} and Figure~\ref{fig:pareto} reveal s
 AutoMAW, which generates declarative workflow graphs without synthesizing executable code, achieves the highest accuracy on both benchmarks (66.0\% on FinanceBench, 85.8\% on HotpotQA), outperforming all code-generating Auto-MAS approaches. By constraining the generation space to agent roles and coordination links, it avoids the runtime failures inherent in synthesized orchestration code while retaining sufficient flexibility for multi-step retrieval.
 
 \textbf{Complexity does not correlate with performance.}
-MAS-Zero deploys the most elaborate architecture---nine agents with debate, reflexion, and majority voting---yet scores 42.9\% on FinanceBench, below even Naive RAG (43.8\%). Similarly, MA-RAG's fixed multi-agent pipeline (32.0\%) underperforms the single-step baseline despite its plan-execute-summarize design. These results indicate that adding coordination overhead to retrieval workflows without task-specific calibration degrades rather than improves accuracy.
+MAS-Zero deploys the most elaborate architecture (9 agents with debate, reflexion, and majority voting) yet scores 42.9\% on FinanceBench, below even Naive RAG (43.8\%). Similarly, MA-RAG's fixed multi-agent pipeline (32.0\%) underperforms the single-step baseline despite its plan-execute-summarize design. These results indicate that adding coordination overhead to retrieval workflows without task-specific calibration degrades rather than improves accuracy.
 
 \textbf{One-time generation is more stable than per-task.}
-Across all Auto-MAS frameworks, one-time generation consistently matches or exceeds per-task generation (e.g., SwarmAgentic: 56.7\% vs.\ 50.0\% on FinanceBench; MAS-Zero: 42.9\% vs.\ 32.7\%). Regenerating a workflow for each query introduces architectural variance---different agent counts, tool bindings, and control flow---without a corresponding adaptation benefit, since no task-level feedback is available in the zero-shot setting.
+Across all Auto-MAS frameworks, one-time generation consistently matches or exceeds per-task generation (e.g., SwarmAgentic: 56.7\% vs.\ 50.0\% on FinanceBench; MAS-Zero: 42.9\% vs.\ 32.7\%). Regenerating a workflow for each query introduces architectural variance (different agent counts, tool bindings, and control flow) without corresponding adaptation benefit, since no task-level feedback is available in the zero-shot setting.
 
 \textbf{Code-generating approaches are fragile in tool-intensive RAG.}
-MetaAgent achieves competitive accuracy on FinanceBench (52.0\% OT) but catastrophically fails on HotpotQA (4.3\% at \$24.86), where multi-hop queries demand precise tool orchestration across many retrieval calls. When generated code fails to correctly invoke or chain retrieval tools, the entire pipeline collapses---a failure mode absent from reasoning-only benchmarks where tool use is minimal.
+MetaAgent achieves competitive accuracy on FinanceBench (52.0\% OT) but exhibits severe performance degradation on HotpotQA (4.3\% at \$24.86), where multi-hop queries demand precise tool orchestration across many retrieval calls. When generated code fails to correctly invoke or chain retrieval tools, the entire pipeline collapses, a failure mode absent from reasoning-only benchmarks where tool use is minimal.
 
 \subsection{Case Study: Architecture Analysis}
 
 To illustrate the over-engineering phenomenon, we compare the architectures generated by MAS-Zero and AutoMAW for a representative FinanceBench query: \textit{``What is the FY2018 capital expenditure amount (in USD millions) for 3M?''} Both systems produced the correct answer, allowing us to focus on architectural differences.
 
-\textbf{MAS-Zero} (Figure~\ref{fig:casestudy}a) generates the most complex architecture among all evaluated systems: a two-phase debate-and-verify pipeline with nine agents. Retrieved documents are distributed to three parallel \textit{Debate Agents}, whose candidate answers are evaluated by a \textit{Critic Agent} performing reflexion-style assessment. If evidence is insufficient, a refined query loops back to the retriever. In the second phase, three parallel \textit{Final Agents} process re-scored evidence, and their outputs are aggregated through \textit{Majority Voting}. Each query triggers up to nine LLM calls plus potential refinement loops---substantial overhead for a straightforward numerical extraction task.
+\textbf{MAS-Zero} (Figure~\ref{fig:casestudy}a) generates the most complex architecture among all evaluated systems: a two-phase debate-and-verify pipeline with nine agents. Retrieved documents are distributed to 3 parallel \textit{Debate Agents}, whose candidate answers are evaluated by a \textit{Critic Agent} performing reflexion-style assessment. If evidence is insufficient, a refined query loops back to the retriever. In the second phase, 3 parallel \textit{Final Agents} process re-scored evidence, and their outputs are aggregated through \textit{Majority Voting}. Each query triggers up to 9 LLM calls, plus potential refinement loops, substantial overhead for a simple numerical extraction task.
 
 \textbf{AutoMAW} (Figure~\ref{fig:casestudy}b) produces the most minimalist design: a linear two-agent pipeline where a \textit{FinancialResearchAgent} handles retrieval and extraction, and a \textit{FinancialAnalysisAgent} performs reasoning and answer synthesis. Agent roles and coordination are defined declaratively without executable code, yielding low latency, a minimal failure surface, and an interpretable workflow.
 
@@ -392,7 +367,7 @@ To illustrate the over-engineering phenomenon, we compare the architectures gene
   \includegraphics[width=\linewidth]{automaw_solution.pdf}
   \centerline{\small (b) AutoMAW}
 \end{minipage}
-\caption{Generated architectures for a FinanceBench query. MAS-Zero produces a 9-agent debate-and-verify pipeline; AutoMAW generates a minimal 2-agent chain. Both answer correctly.}
+\caption{Generated architectures for a FinanceBench query. MAS-Zero produces a 9-agent debate-and-verify pipeline; AutoMAW generates a minimal 2-agent chain. Both answered correctly.}
 \label{fig:casestudy}
 \Description{Comparison of MAS-Zero and AutoMAW generated architectures.}
 \end{figure}
@@ -400,13 +375,12 @@ To illustrate the over-engineering phenomenon, we compare the architectures gene
 
 \section{Conclusion}
 
-We presented the first empirical evaluation of zero-shot Auto-MAS generators on RAG benchmarks, comparing four frameworks across academic multi-hop retrieval and industrial financial reasoning. Our central finding is that auto-generated agents systematically over-engineer retrieval workflows: mechanisms such as multi-agent debate, reflexion loops, and majority voting---effective in reasoning-only settings---add substantial cost without improving retrieval quality, and in some cases degrade it below non-agentic baselines. We find that constraining the generation space through declarative workflow specification yields more reliable and accurate retrieval pipelines than unconstrained code synthesis, and that reusing a single generated architecture across tasks is more stable than per-task regeneration. For practitioners facing cold-start RAG deployment, our results suggest that a well-structured retrieval graph with few specialized agents is preferable to elaborate self-organizing architectures. Future work should investigate whether incorporating minimal task feedback (few-shot) can bridge the gap between zero-shot generation and fully optimized workflows.
+We presented the first empirical evaluation of zero-shot Auto-MAS generators on RAG benchmarks, comparing four frameworks across academic multi-hop retrieval and industrial financial reasoning. Our findings suggest that in production RAG systems for domain-specific retrieval, structural simplicity and deterministic retrieval orchestration may outperform dynamic agentic coordination in the absence of supervision. Indeed, auto-generated agents systematically over-engineer retrieval workflows: mechanisms such as multi-agent debate, reflexion loops, and majority voting, effective in reasoning-only settings, which add substantial cost without improving (or even degrading) retrieval quality compared to non-agentic baselines. We find that constraining the generation space through declarative workflow specification yields more reliable and accurate retrieval pipelines than unconstrained code synthesis, and that reusing a single generated architecture across tasks is more stable than per-task regeneration. For practitioners facing cold-start RAG deployment, our results suggest that a well-structured retrieval graph with few specialized agents is preferable to elaborate self-organizing architectures. Future work should investigate whether incorporating minimal task feedback (few-shot) can bridge the gap between zero-shot generation and fully optimized workflows.
 
 \bibliographystyle{ACM-Reference-Format}
-\bibliography{main}
+\bibliography{main.bib}
 
 \end{document}
 \endinput
 %%
 %% End of file `sample-sigconf.tex'.
-

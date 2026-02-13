@@ -60,16 +60,14 @@ def llm_accuracy(
         1.0 if correct, 0.0 otherwise.
     """
     prompt = (
-        f"Question: {question}\n\n"
-        f"Gold answer: {gold}\n\n"
-        f"Predicted answer: {predicted}"
+        f"Question: {question}\n\nGold answer: {gold}\n\nPredicted answer: {predicted}"
     )
 
     provider = OpenAIProvider(
         base_url=os.environ.get("OPENAI_BASE_URL"),
         api_key=os.environ.get("OPENAI_API_KEY"),
     )
-    model = OpenAIChatModel(model_name, provider=provider)
+    model = OpenAIChatModel("openai/gpt-4o-mini", provider=provider)
 
     result = judge_agent.run_sync(prompt, model=model)
     return float(result.output.correct)
