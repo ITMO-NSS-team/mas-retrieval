@@ -21,7 +21,7 @@ class FedotMASAdapter(AbstractAdapter):
     ) -> None:
         super().__init__(retriever, model, **kwargs)
         if self._generation_mode is None:
-            self._generation_mode = "per_question"
+            self._generation_mode = "shared"
 
         self._cached_config: PipelineConfig | None = None
 
@@ -73,10 +73,7 @@ class FedotMASAdapter(AbstractAdapter):
         return "\n".join(parts)
 
     async def _generate_config(self, question: str) -> PipelineConfig:
-        if (
-            self._generation_mode == "shared"
-            and self._cached_config is not None
-        ):
+        if self._generation_mode == "shared" and self._cached_config is not None:
             return self._cached_config
 
         registry = self._build_mcp_registry()
@@ -122,9 +119,7 @@ class FedotMASAdapter(AbstractAdapter):
 
             registry = self._build_mcp_registry()
             mas = MAS(model=self._model, mcp_registry=registry)
-            result = asyncio.run(
-                mas.build_and_run(config, question)
-            )
+            result = asyncio.run(mas.build_and_run(config, question))
 
             answer = self._extract_answer(result)
             self._log_tool_calls(tracker, docids_file)
