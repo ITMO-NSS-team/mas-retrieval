@@ -72,9 +72,11 @@ class FedotMASAdapter(AbstractAdapter):
             parts.append(f"\nExample questions from the benchmark:\n{examples}")
         return "\n".join(parts)
 
-    async def _generate_config(self, question: str) -> PipelineConfig:
+    async def _generate_config(
+        self, question: str
+    ) -> tuple[PipelineConfig, MAS | None]:
         if self._generation_mode == "shared" and self._cached_config is not None:
-            return self._cached_config
+            return self._cached_config, None
 
         registry = self._build_mcp_registry()
         mas = MAS(
@@ -91,10 +93,10 @@ class FedotMASAdapter(AbstractAdapter):
         if self._generation_mode == "shared":
             self._cached_config = config
 
-        return config
+        return config, mas
 
     def generate_system(self, question: str) -> str:
-        config = asyncio.run(self._generate_config(question))
+        config, _ = asyncio.run(self._generate_config(question))
         return config.model_dump_json(indent=2)
 
     def execute(
@@ -117,11 +119,26 @@ class FedotMASAdapter(AbstractAdapter):
         os.environ["RETCAP_DOCIDS_FILE"] = str(docids_file)
 
         try:
-            config = asyncio.run(self._generate_config(question))
+            config, meta_mas = asyncio.run(self._generate_config(question))
+
+            if meta_mas is not None:
+                tracker.log_llm_call(
+                    model=self._model,
+                    prompt_tokens=meta_mas.meta_prompt_tokens,
+                    completion_tokens=meta_mas.meta_completion_tokens,
+                    latency_ms=meta_mas.meta_elapsed * 1000,
+                )
 
             registry = self._build_mcp_registry()
             mas = MAS(meta_model=self._model, mcp_servers=registry)
             result = asyncio.run(mas.build_and_run(config, question))
+
+            tracker.log_llm_call(
+                model=self._model,
+                prompt_tokens=mas.total_prompt_tokens,
+                completion_tokens=mas.total_completion_tokens,
+                latency_ms=mas.elapsed * 1000,
+            )
 
             answer = self._extract_answer(result)
             self._log_tool_calls(tracker, docids_file)
