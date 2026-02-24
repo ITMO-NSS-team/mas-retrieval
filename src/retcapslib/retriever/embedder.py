@@ -6,6 +6,8 @@ Supports dense retrieval mode (1024-dim embeddings).
 
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import torch
 
@@ -40,7 +42,7 @@ class BGEM3Embedder:
         self._device = device
 
         # Load model with FlagEmbedding
-        print(f"Loading BGE-M3 embedder on {device}...")
+        print(f"Loading BGE-M3 embedder on {device}...", file=sys.stderr)
         self._model = BGEM3FlagModel(
             model_name,
             use_fp16=use_fp16 and device != "cpu",

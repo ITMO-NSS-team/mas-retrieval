@@ -6,6 +6,7 @@ through the FlagEmbedding library.
 
 from __future__ import annotations
 
+import sys
 from typing import TYPE_CHECKING
 
 import torch
@@ -36,7 +37,7 @@ class BGEReranker:
                 device = "cpu"
         self._device = device
 
-        print(f"Loading BGE reranker on {device}...")
+        print(f"Loading BGE reranker on {device}...", file=sys.stderr)
         self._model = FlagReranker(
             model_name,
             use_fp16=use_fp16 and device != "cpu",

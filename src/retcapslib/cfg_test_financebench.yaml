@@ -3,11 +3,11 @@ experiment:
 
 benchmarks:
   financebench:
-    sample_n: 150
+    sample_n: 5
     collection_name: "financebench"
 
 models:
-  primary: "meta-llama/llama-3.3-70b-instruct"
+  primary: "openai/gpt-4o-mini"
   # "openai/gpt-4o-mini"
   # "qwen/qwen3-235b-a22b-2507"
   # "openai/gpt-oss-120b"
@@ -24,7 +24,7 @@ systems:
   # - naive_rag
   # - single_agent
   # - swarm_agentic
-  - automas
+  - fedotmas
 
 output:
   results_dir: "results/"

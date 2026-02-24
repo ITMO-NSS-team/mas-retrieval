@@ -1,3 +1,3 @@
-from retcapslib.adapters.automas.adapter import AutoMASAdapter
+# from retcapslib.adapters.automas.adapter import AutoMASAdapter
 
-__all__ = ["AutoMASAdapter"]
+# __all__ = ["AutoMASAdapter"]

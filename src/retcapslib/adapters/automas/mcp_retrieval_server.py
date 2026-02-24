@@ -26,7 +26,7 @@ def _get_retriever() -> Retriever:
         config = {
             "embedder": os.environ.get("RETCAP_EMBEDDER", "BAAI/bge-m3"),
             "reranker": os.environ.get("RETCAP_RERANKER", "BAAI/bge-reranker-v2-m3"),
-            "index_path": os.environ["RETCAP_INDEX_PATH"],
+            "index_path": "/home/glhf/dev/mas-retrieval/experiments/data/chroma_index",
             "collection_name": os.environ.get("RETCAP_COLLECTION", "financebench"),
         }
         _retriever = Retriever(config)
@@ -39,7 +39,9 @@ def _log_doc_ids(tool_name: str, query: str, doc_ids: list[str]) -> None:
     if not path:
         return
     with open(path, "a") as f:
-        f.write(json.dumps({"tool": tool_name, "query": query, "doc_ids": doc_ids}) + "\n")
+        f.write(
+            json.dumps({"tool": tool_name, "query": query, "doc_ids": doc_ids}) + "\n"
+        )
 
 
 @mcp.tool()
@@ -90,4 +92,4 @@ def calculate(expression: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run()
+    mcp.run(show_banner=False)

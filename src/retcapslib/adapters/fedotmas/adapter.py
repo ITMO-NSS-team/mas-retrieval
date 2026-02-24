@@ -77,7 +77,9 @@ class FedotMASAdapter(AbstractAdapter):
             return self._cached_config
 
         registry = self._build_mcp_registry()
-        mas = MAS(model=self._model, mcp_registry=registry)
+        mas = MAS(
+            meta_model=self._model, worker_models=[self._model], mcp_servers=registry
+        )
 
         if self._generation_mode == "shared":
             task_description = self._build_task_description()
@@ -118,7 +120,7 @@ class FedotMASAdapter(AbstractAdapter):
             config = asyncio.run(self._generate_config(question))
 
             registry = self._build_mcp_registry()
-            mas = MAS(model=self._model, mcp_registry=registry)
+            mas = MAS(meta_model=self._model, mcp_servers=registry)
             result = asyncio.run(mas.build_and_run(config, question))
 
             answer = self._extract_answer(result)
@@ -126,6 +128,9 @@ class FedotMASAdapter(AbstractAdapter):
 
         except Exception as e:
             tracker.set_error(str(e))
+            import traceback
+
+            traceback.print_exc()
             answer = ""
 
         if docids_file.exists():
