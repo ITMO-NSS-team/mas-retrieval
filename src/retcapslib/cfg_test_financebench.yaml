@@ -3,7 +3,7 @@ experiment:
 
 benchmarks:
   financebench:
-    sample_n: 5
+    sample_n: 10
     collection_name: "financebench"
 
 models:

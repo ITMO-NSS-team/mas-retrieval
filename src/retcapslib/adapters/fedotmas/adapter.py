@@ -43,7 +43,7 @@ class FedotMASAdapter(AbstractAdapter):
 
     def _build_mcp_registry(self) -> dict[str, MCPServerConfig]:
         return {
-            "retcap-retrieval": StdioMCPServer(
+            "retrieval": StdioMCPServer(
                 command=sys.executable,
                 args=(
                     "-m",
@@ -52,8 +52,6 @@ class FedotMASAdapter(AbstractAdapter):
                 timeout=30,
                 description=(
                     "Search a document corpus and calculate mathematical expressions. "
-                    "Use 'retrieval_search' to find relevant passages by semantic query "
-                    "and 'calculate' to evaluate arithmetic."
                 ),
                 tags=("retrieval", "math"),
             ),
@@ -130,7 +128,11 @@ class FedotMASAdapter(AbstractAdapter):
                 )
 
             registry = self._build_mcp_registry()
-            mas = MAS(meta_model=self._model, mcp_servers=registry)
+            mas = MAS(
+                meta_model=self._model,
+                worker_models=[self._model],
+                mcp_servers=registry,
+            )
             result = asyncio.run(mas.build_and_run(config, question))
 
             tracker.log_llm_call(

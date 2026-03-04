@@ -19,7 +19,7 @@ from typing import Any
 import yaml
 from tqdm import tqdm
 
-# from retcapslib.adapters.automas import AutoMASAdapter
+from retcapslib.adapters.automas import AutoMASAdapter
 from retcapslib.adapters.base import AbstractAdapter
 from retcapslib.adapters.fedotmas import FedotMASAdapter
 from retcapslib.adapters.ma_rag import MARagAdapter
@@ -46,7 +46,7 @@ ADAPTERS: dict[str, type[AbstractAdapter]] = {
     "naive_rag": NaiveRAGAdapter,
     "single_agent": SingleAgentAdapter,
     "swarm_agentic": SwarmAgenticAdapter,
-    # "automas": AutoMASAdapter,
+    "automas": AutoMASAdapter,
     "fedotmas": FedotMASAdapter,
     "meta_agent": MetaAgentAdapter,
     "mas_zero": MASZeroAdapter,
