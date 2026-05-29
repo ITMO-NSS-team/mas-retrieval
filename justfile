@@ -28,9 +28,18 @@ index-hotpotqa:
 index-financebench:
     uv run build-index --dataset financebench
 
-# Run tests
+# Run benchmarks. `just run` is the canonical, cross-OS launcher; pass any CLI
+# flag through. See all options with:  just run --help
+# e.g.  just run --benchmark hotpotqa --systems fedotmas --sample-n 50 --note "..."
+#
+# --no-sync: do not let uv prune the environment (some packages are installed
+# out-of-band). `python -m retcapslib.cli` avoids needing the console script
+# reinstalled and works on Linux/macOS/Windows.
+run *ARGS:
+    uv run --no-sync python -m retcapslib.cli {{ARGS}}
+
 test-hotpot:
-    uv run run-experiment --config src/retcapslib/cfg_test_hotpot.yaml
+    just run --benchmark hotpotqa
 
 test-financebench:
-    uv run run-experiment --config src/retcapslib/cfg_test_financebench.yaml
+    just run --benchmark financebench

@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "retcapslib"
 version = "0.1.0"
-description = "Evaluating Auto-Generated Multi-Agent Systems on Retrieval Tasks"
+description = "Evaluating Auto-Generated Multi-Agent Systems on QA Tasks"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -28,13 +28,14 @@ dependencies = [
     "pydantic-evals>=1.56.0",
     "pymupdf>=1.25.0",
     "pydantic-graph>=1.56.0",
+    "typer>=0.12.0",
 ]
 
 [project.scripts]
 download-benchmarks = "retcapslib.data.download_benchmarks:main"
 prepare-corpus = "retcapslib.data.prepare_corpus:main"
 build-index = "retcapslib.retriever.index_builder:main"
-run-experiment = "retcapslib.runners.run_experiment:main"
+bench = "retcapslib.cli:main"
 
 [dependency-groups]
 swarm = [

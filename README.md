@@ -1,50 +1,19 @@
 ## Zero-Shot Multi-Agent Generation for Specialized RAG Workflows: An Empirical Evaluation
 
-This repo contains code for preparing data and evaluating auto-generated multi-agent systems on retrieval tasks.
-Before running, ensure that you have enough vRAM for the BGE-M3 embedder (~3-4 GB).
-You must set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `GITHUB_TOKEN` in the `.env` file.
-
-### Setup Python environment
-
-Only Unix-like systems are supported. In this project, `uv` will work well:
+### Setup
 
 ```bash
 uv sync
 ```
 
-### Pipeline overview
+Set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `GITHUB_TOKEN` in `.env`.
 
-The pipeline consists of four stages: download benchmarks, prepare corpus, build index, run experiment.
-Before you need to instal the [just](https://github.com/casey/just#installation) command runner.
+### Run
 
-#### HotpotQA
-
-```bash
-just download-hotpotqa        # Download 500 questions from HuggingFace
-just prepare-hotpotqa          # Extract ~500K Wikipedia paragraphs
-just index-hotpotqa            # Build ChromaDB index with BGE-M3
-just test-hotpot               # Run experiment
-```
-
-#### FinanceBench
+Experiments are launched with `just run` (cross-platform). All parameters are
+flags with defaults in `src/retcapslib/cli.py`; see them with `just run --help`.
 
 ```bash
-just download-financebench       # Download 150 questions from HuggingFace
-just download-financebench-pdfs  # Download ~75 SEC filing PDFs from GitHub
-just prepare-financebench        # Extract text from all PDF pages via PyMuPDF
-just index-financebench          # Build ChromaDB index with BGE-M3
-just test-financebench           # Run experiment
-```
-
-### Configuration
-
-Experiment configuration files are in `src/retcapslib/`:
-
-- `cfg_test_hotpot.yaml` — HotpotQA experiment config
-- `cfg_test_financebench.yaml` — FinanceBench experiment config
-
-To run with a custom config:
-
-```bash
-uv run run-experiment --config path/to/config.yaml
+just run --benchmark financebench --sample-n 10
+just run --benchmark hotpotqa --systems fedotmas --note "retriever check"
 ```

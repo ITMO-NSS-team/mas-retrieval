@@ -15,3 +15,4 @@ results/
 .env
 
 .DS_Store
+.claude/
