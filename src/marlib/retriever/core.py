@@ -1,11 +1,3 @@
-"""Core retrieval API used by all systems.
-
-Canonical functions:
-- retrieve(query, top_k) -> dense ChromaDB search
-- rerank(query, docs, top_k) -> BGE reranker re-scoring
-- search(query, top_k, rerank) -> retrieve + optional rerank (default pipeline)
-"""
-
 from __future__ import annotations
 
 import threading

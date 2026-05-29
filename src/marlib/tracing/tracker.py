@@ -1,5 +1,3 @@
-"""Token and call tracking for experiment monitoring."""
-
 from __future__ import annotations
 
 import time

@@ -1,10 +1,3 @@
-"""Shared tool implementations for agent adapters.
-
-Pure functions that can be wrapped by any agent framework
-(pydantic-ai, MCP, etc.). Each returns both raw objects and
-formatted strings.
-"""
-
 from __future__ import annotations
 
 import ast

@@ -1,9 +1,3 @@
-"""Unified retrieval infrastructure for all systems.
-
-Provides dense retrieval over a shared Wikipedia corpus using
-BGE-M3 embeddings + ChromaDB, with BGE reranker for re-ranking.
-"""
-
 from marlib.retriever.core import (
     Document,
     Retriever,

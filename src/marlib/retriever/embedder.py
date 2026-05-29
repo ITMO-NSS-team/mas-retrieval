@@ -1,9 +1,3 @@
-"""BGE-M3 embeddings wrapper for query and document encoding.
-
-Uses local inference via the BAAI/bge-m3 model with FlagEmbedding library.
-Supports dense retrieval mode (1024-dim embeddings).
-"""
-
 from __future__ import annotations
 
 import numpy as np

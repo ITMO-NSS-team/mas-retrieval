@@ -1,10 +1,3 @@
-"""Build retrieval corpora via the builder registry.
-
-Thin dispatcher: selects benchmarks (by name, or ``all`` discovered from the
-data directory) and calls each registered builder's ``build_corpus``. The actual
-per-benchmark logic lives in ``marlib.benchmarks.<name>``.
-"""
-
 from __future__ import annotations
 
 import argparse

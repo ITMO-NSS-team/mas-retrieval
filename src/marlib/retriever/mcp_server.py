@@ -1,16 +1,3 @@
-"""Harness MCP server exposing retrieval + calculator tools over stdio.
-
-Spawned as a subprocess by adapters whose frameworks discover tools via MCP
-(e.g. FedotMAS, AutoMAS):  ``python -m marlib.retriever.mcp_server``.
-
-The subprocess builds its own Retriever from ``RETCAP_*`` environment variables
-(set by the spawning adapter) and appends retrieved doc_ids to
-``RETCAP_DOCIDS_FILE`` so the parent can compute context_recall.
-
-This is harness infrastructure (it exposes the shared retriever), not tied to
-any single system.
-"""
-
 from __future__ import annotations
 
 import json

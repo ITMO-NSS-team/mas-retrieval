@@ -1,5 +1,3 @@
-"""Evaluation metrics for retrieval and QA performance."""
-
 from marlib.evaluation.metrics import (
     context_recall,
     exact_match,

@@ -1,9 +1,3 @@
-"""BGE reranker wrapper for passage re-ranking.
-
-Uses local inference via the BAAI/bge-reranker-v2-m3 model
-through the FlagEmbedding library.
-"""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

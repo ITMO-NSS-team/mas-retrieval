@@ -1,14 +1,3 @@
-"""Centralized logger configuration for marlib.
-
-Import the shared logger everywhere instead of using print():
-
-    from marlib.log import logger
-
-    logger.info("message", key=value)
-
-Configuration lives here so it is applied once, on first import.
-"""
-
 from __future__ import annotations
 
 import os

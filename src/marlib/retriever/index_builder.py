@@ -1,10 +1,3 @@
-"""Build ChromaDB indexes via the builder registry.
-
-Thin dispatcher around :func:`marlib.benchmarks.build_index` (the indexing
-pipeline is identical for every benchmark). Selects benchmarks by name, or
-``all`` discovered from the data directory, and indexes each one's corpus.
-"""
-
 from __future__ import annotations
 
 import argparse

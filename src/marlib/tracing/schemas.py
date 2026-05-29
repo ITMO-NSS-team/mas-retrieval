@@ -1,8 +1,3 @@
-"""Pydantic models for structured experiment tracing.
-
-Defines schemas for tool calls, LLM calls, and question-level logs.
-"""
-
 from __future__ import annotations
 
 from pydantic import BaseModel, Field

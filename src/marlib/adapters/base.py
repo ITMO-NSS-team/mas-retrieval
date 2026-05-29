@@ -1,9 +1,3 @@
-"""Abstract base class for MAS auto-generator adapters.
-
-Each adapter wraps a specific system (e.g., ADAS, MAS-GPT, AutoAgents)
-and provides a uniform interface for question execution.
-"""
-
 from __future__ import annotations
 
 import importlib

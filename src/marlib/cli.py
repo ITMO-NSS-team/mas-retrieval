@@ -1,15 +1,3 @@
-"""Typer CLI for running MAS retrieval benchmarks.
-
-Defaults for every run parameter live here as flag defaults; the canonical way
-to launch (and the place common runs are named) is the justfile, e.g.
-`just run --benchmark hotpotqa ...`. Each invocation is frozen into a per-run
-provenance directory (run_meta.json) and appended to results/runs.jsonl, so the
-history of "what was benchmarked" is recoverable without digging through logs.
-
-Cross-platform: launched via `just run` (and `python -m marlib.cli`), which
-work on Linux, macOS and Windows.
-"""
-
 from __future__ import annotations
 
 import json

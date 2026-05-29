@@ -1,11 +1,3 @@
-"""Evaluation metrics for multi-hop QA.
-
-Implements standard metrics from HotpotQA/MuSiQue evaluation:
-- Exact Match (EM): Normalized string equality
-- F1 Score: Token-level overlap
-- Context Recall: Fraction of gold supporting paragraphs retrieved
-"""
-
 from __future__ import annotations
 
 import re

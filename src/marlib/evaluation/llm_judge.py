@@ -1,9 +1,3 @@
-"""LLM-as-a-judge for semantic answer accuracy.
-
-Uses a pydantic-ai agent with structured output to decide whether a
-predicted answer is semantically equivalent to the gold answer.
-"""
-
 from __future__ import annotations
 
 import os

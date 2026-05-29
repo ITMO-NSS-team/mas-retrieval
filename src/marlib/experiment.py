@@ -1,13 +1,3 @@
-"""Evaluation engine for MAS auto-generators on retrieval tasks.
-
-Reusable building blocks, decoupled from the CLI surface (`cli.py`) so they can
-be imported and tested on their own:
-- load_adapter (looks up the auto-registered adapter registry)
-- load_benchmark (reads a discovered BenchmarkSpec)
-- run_system_on_benchmark (per-question execution + metric aggregation)
-- save_results
-"""
-
 from __future__ import annotations
 
 import json
