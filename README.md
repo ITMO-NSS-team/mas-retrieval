@@ -39,5 +39,7 @@ Parameters are flags with defaults in `src/marlib/cli.py` (`just run --help`).
 
 ```bash
 just run --benchmark financebench --sample-n 10
-just run --benchmark hotpotqa --systems fedotmas --note "retriever check"
+just run --benchmark hotpotqa --systems naive_rag fedotmas --note "retriever check"
 ```
+
+Pass several systems space-separated after `--systems` to run them in one process.

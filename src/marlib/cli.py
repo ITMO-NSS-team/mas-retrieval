@@ -1,14 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 from uuid import uuid4
-
-import typer
 
 from marlib.adapters import discover_adapters, get_adapter_class
 from marlib.benchmarks import discover, load_spec
@@ -16,10 +14,6 @@ from marlib.log import logger
 from marlib.retriever.core import init_retriever
 from marlib.runner import run_system_on_benchmark, save_results
 from marlib.tracing.schemas import SystemResults
-
-# Discovered from the default content roots at import — used only for --help text.
-_AVAILABLE = list(discover())
-_SYSTEMS = discover_adapters()
 
 
 def _git_sha() -> str | None:
@@ -36,68 +30,109 @@ def _git_sha() -> str | None:
         return None
 
 
-def run(
-    benchmark: str = typer.Option(
-        "financebench",
-        help=f"Benchmark (discovered from --data-dir). Available: {_AVAILABLE}",
-    ),
-    model: str = typer.Option("openai/gpt-4o-mini", help="LLM model identifier."),
-    systems: list[str] = typer.Option(
-        ["fedotmas"],
-        help=f"System(s) to run in this process. Available: {_SYSTEMS}",
-    ),
-    sample_n: Optional[int] = typer.Option(
-        None, help="Cap on number of questions (default: full set)."
-    ),
-    generation_mode: Optional[str] = typer.Option(
-        None, help="Generation mode forwarded to the adapter (e.g. shared)."
-    ),
-    retrieve_top_k: int = typer.Option(20, help="Candidates retrieved before rerank."),
-    rerank_top_k: int = typer.Option(10, help="Documents kept after rerank."),
-    embedder: str = typer.Option("BAAI/bge-m3", help="Embedder model name."),
-    reranker: str = typer.Option(
-        "BAAI/bge-reranker-v2-m3", help="Reranker model name."
-    ),
-    data_dir: Path = typer.Option(
-        Path("experiments/benchmarks"),
+def _build_parser() -> argparse.ArgumentParser:
+    # Discovered from the default content roots, for the --help listings only.
+    available = list(discover())
+    systems = discover_adapters()
+
+    parser = argparse.ArgumentParser(
+        description="Run one benchmark across the given system(s) and save "
+        "results + provenance."
+    )
+    parser.add_argument(
+        "--benchmark",
+        default="financebench",
+        help=f"Benchmark (discovered from --data-dir). Available: {available}",
+    )
+    parser.add_argument(
+        "--model", default="openai/gpt-4o-mini", help="LLM model identifier."
+    )
+    parser.add_argument(
+        "--systems",
+        nargs="+",
+        default=["fedotmas"],
+        help=f"System(s) to run in this process. Available: {systems}",
+    )
+    parser.add_argument(
+        "--sample-n",
+        type=int,
+        default=None,
+        help="Cap on number of questions (default: full set).",
+    )
+    parser.add_argument(
+        "--generation-mode",
+        default=None,
+        help="Generation mode forwarded to the adapter (e.g. shared).",
+    )
+    parser.add_argument(
+        "--retrieve-top-k",
+        type=int,
+        default=20,
+        help="Candidates retrieved before rerank.",
+    )
+    parser.add_argument(
+        "--rerank-top-k", type=int, default=10, help="Documents kept after rerank."
+    )
+    parser.add_argument(
+        "--embedder", default="BAAI/bge-m3", help="Embedder model name."
+    )
+    parser.add_argument(
+        "--reranker", default="BAAI/bge-reranker-v2-m3", help="Reranker model name."
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path("experiments/benchmarks"),
         help="Benchmark repository root (one subdir per benchmark).",
-    ),
-    systems_dir: Path = typer.Option(
-        Path("experiments/systems"),
+    )
+    parser.add_argument(
+        "--systems-dir",
+        type=Path,
+        default=Path("experiments/systems"),
         help="Systems (adapters) repository root (one subdir per system).",
-    ),
-    results_dir: Path = typer.Option(Path("results"), help="Output root dir."),
-    note: str = typer.Option("", help="Free-text note describing this run."),
-) -> None:
-    """Run one benchmark across the given system(s) and save results + provenance."""
+    )
+    parser.add_argument(
+        "--results-dir", type=Path, default=Path("results"), help="Output root dir."
+    )
+    parser.add_argument(
+        "--note", default="", help="Free-text note describing this run."
+    )
+    return parser
+
+
+def main() -> None:
+    """Console-script entry point (`bench`)."""
+    parser = _build_parser()
+    args = parser.parse_args()
+
     try:
-        spec = load_spec(benchmark, data_dir)
+        spec = load_spec(args.benchmark, args.data_dir)
     except ValueError as e:
-        raise typer.BadParameter(str(e))
-    available = discover_adapters(systems_dir)
-    unknown = [s for s in systems if s not in available]
+        parser.error(str(e))
+    available = discover_adapters(args.systems_dir)
+    unknown = [s for s in args.systems if s not in available]
     if unknown:
-        raise typer.BadParameter(f"Unknown system(s) {unknown}. Available: {available}")
+        parser.error(f"Unknown system(s) {unknown}. Available: {available}")
 
     # Unique run id avoids collisions between concurrent runs on one machine.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_id = f"{timestamp}_{benchmark}_{uuid4().hex[:6]}"
-    out_dir = Path(results_dir) / run_id
+    run_id = f"{timestamp}_{args.benchmark}_{uuid4().hex[:6]}"
+    out_dir = args.results_dir / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(
         f"Starting run {run_id}",
-        benchmark=benchmark,
-        model=model,
-        systems=systems,
-        note=note or None,
+        benchmark=args.benchmark,
+        model=args.model,
+        systems=args.systems,
+        note=args.note or None,
     )
 
     retriever_config = {
-        "embedder": embedder,
-        "reranker": reranker,
-        "retrieve_top_k": retrieve_top_k,
-        "rerank_top_k": rerank_top_k,
+        "embedder": args.embedder,
+        "reranker": args.reranker,
+        "retrieve_top_k": args.retrieve_top_k,
+        "rerank_top_k": args.rerank_top_k,
         "index_path": str(spec.index_path),
         "collection_name": spec.collection,
     }
@@ -110,34 +145,34 @@ def run(
         documents=retriever._collection.count(),
     )
 
-    questions = spec.load_questions(sample_n=sample_n)
+    questions = spec.load_questions(sample_n=args.sample_n)
     logger.info(f"Loaded {len(questions)} questions")
     sample_qs = [q.get("question", "") for q in questions[:5]]
 
     adapter_kwargs = {}
-    if generation_mode is not None:
-        adapter_kwargs["generation_mode"] = generation_mode
+    if args.generation_mode is not None:
+        adapter_kwargs["generation_mode"] = args.generation_mode
 
     all_results: list[SystemResults] = []
     summaries: list[dict] = []
 
-    for system_name in systems:
+    for system_name in args.systems:
         logger.info(f"Running system: {system_name}")
         adapter = get_adapter_class(system_name)(
-            retriever=retriever, model=model, **adapter_kwargs
+            retriever=retriever, model=args.model, **adapter_kwargs
         )
-        adapter.set_benchmark_context(benchmark, spec.description, sample_qs)
+        adapter.set_benchmark_context(args.benchmark, spec.description, sample_qs)
 
         results = run_system_on_benchmark(
             adapter=adapter,
             questions=questions,
-            benchmark_name=benchmark,
-            model=model,
+            benchmark_name=args.benchmark,
+            model=args.model,
             metrics=spec.metrics,
         )
 
         logger.success(
-            f"Results for {system_name}/{benchmark}",
+            f"Results for {system_name}/{args.benchmark}",
             **{k: round(v, 3) for k, v in results.avg_metrics.items()},
             tokens_per_q=round(results.avg_tokens_per_question),
             prompt_tokens_per_q=round(results.avg_prompt_tokens_per_question),
@@ -157,20 +192,19 @@ def run(
             }
         )
 
-    # --- Provenance: freeze the exact invocation + context into the run dir ---
     params = {
-        "benchmark": benchmark,
-        "model": model,
-        "systems": systems,
-        "sample_n": sample_n,
-        "generation_mode": generation_mode,
-        "retrieve_top_k": retrieve_top_k,
-        "rerank_top_k": rerank_top_k,
-        "embedder": embedder,
-        "reranker": reranker,
+        "benchmark": args.benchmark,
+        "model": args.model,
+        "systems": args.systems,
+        "sample_n": args.sample_n,
+        "generation_mode": args.generation_mode,
+        "retrieve_top_k": args.retrieve_top_k,
+        "rerank_top_k": args.rerank_top_k,
+        "embedder": args.embedder,
+        "reranker": args.reranker,
         "index_path": str(spec.index_path),
-        "data_dir": str(data_dir),
-        "systems_dir": str(systems_dir),
+        "data_dir": str(args.data_dir),
+        "systems_dir": str(args.systems_dir),
         "metrics": list(spec.metrics),
     }
     run_meta = {
@@ -178,7 +212,7 @@ def run(
         "timestamp": timestamp,
         "argv": sys.argv,
         "git_sha": _git_sha(),
-        "note": note,
+        "note": args.note,
         "params": params,
         "summaries": summaries,
     }
@@ -189,27 +223,22 @@ def run(
     index_entry = {
         "run_id": run_id,
         "dir": str(out_dir),
-        "benchmark": benchmark,
-        "model": model,
-        "systems": systems,
-        "note": note,
+        "benchmark": args.benchmark,
+        "model": args.model,
+        "systems": args.systems,
+        "note": args.note,
         "git_sha": run_meta["git_sha"],
         "summaries": summaries,
     }
-    Path(results_dir).mkdir(parents=True, exist_ok=True)
-    with open(Path(results_dir) / "runs.jsonl", "a") as f:
+    args.results_dir.mkdir(parents=True, exist_ok=True)
+    with open(args.results_dir / "runs.jsonl", "a") as f:
         f.write(json.dumps(index_entry) + "\n")
 
     logger.success(
         "Run complete",
         results_dir=str(out_dir),
-        history_index=str(Path(results_dir) / "runs.jsonl"),
+        history_index=str(args.results_dir / "runs.jsonl"),
     )
-
-
-def main() -> None:
-    """Console-script entry point (`bench`). Single command, no subcommand."""
-    typer.run(run)
 
 
 if __name__ == "__main__":
