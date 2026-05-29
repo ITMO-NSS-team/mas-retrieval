@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import re
 import sys
 import tomllib
@@ -8,12 +9,16 @@ import types
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from marlib.log import logger
 
 # Default location of the benchmark repository (one subdirectory per benchmark).
 DEFAULT_ROOT = Path("experiments/benchmarks")
 _BENCH_NS = "_marlib_benchmarks"
+
+# Metrics applied when a manifest does not declare its own ``metrics`` list.
+DEFAULT_METRICS: tuple[str, ...] = ("exact_match", "f1")
 
 
 def slugify(text: str) -> str:
@@ -39,11 +44,20 @@ class BenchmarkSpec:
     description: str
     collection: str
     split: str | None = None
+    metrics: tuple[str, ...] = DEFAULT_METRICS
 
     @property
     def questions_path(self) -> Path:
         """JSONL of evaluation questions (produced by ``download``)."""
         return self.root / "questions.jsonl"
+
+    def load_questions(self, sample_n: int | None = None) -> list[dict[str, Any]]:
+        """Read the question set from ``questions_path`` (optionally capped)."""
+        with open(self.questions_path) as f:
+            questions = [json.loads(line) for line in f]
+        if sample_n is not None:
+            return questions[:sample_n]
+        return questions
 
     @property
     def corpus_path(self) -> Path:
@@ -67,12 +81,14 @@ def _spec_from_manifest(manifest_path: Path) -> BenchmarkSpec:
         data = tomllib.load(f)
     root = manifest_path.parent
     name = data.get("name") or root.name
+    metrics = data.get("metrics")
     return BenchmarkSpec(
         name=name,
         root=root,
         description=(data.get("description") or "").strip(),
         collection=data.get("collection") or name,
         split=data.get("split"),
+        metrics=tuple(metrics) if metrics else DEFAULT_METRICS,
     )
 
 

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
+from functools import cache
+from typing import Any
 
 from pydantic import BaseModel
-from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.openai import OpenAIProvider
+
+from marlib.evaluation.base import EvalContext, register_metric
 
 _JUDGE_SYSTEM_PROMPT = """\
 You are an impartial judge evaluating whether a predicted answer is \
@@ -30,10 +31,13 @@ class JudgeVerdict(BaseModel):
     reasoning: str
 
 
-judge_agent = Agent(
-    system_prompt=_JUDGE_SYSTEM_PROMPT,
-    output_type=JudgeVerdict,
-)
+@cache
+def _judge_agent() -> Any:
+    # pydantic-ai is imported lazily so building the metric registry stays cheap
+    # for benchmarks that never use the judge.
+    from pydantic_ai import Agent
+
+    return Agent(system_prompt=_JUDGE_SYSTEM_PROMPT, output_type=JudgeVerdict)
 
 
 def llm_accuracy(
@@ -53,15 +57,27 @@ def llm_accuracy(
     Returns:
         1.0 if correct, 0.0 otherwise.
     """
+    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.providers.openai import OpenAIProvider
+
     prompt = (
         f"Question: {question}\n\nGold answer: {gold}\n\nPredicted answer: {predicted}"
     )
-
     provider = OpenAIProvider(
         base_url=os.environ.get("OPENAI_BASE_URL"),
         api_key=os.environ.get("OPENAI_API_KEY"),
     )
-    model = OpenAIChatModel("openai/gpt-4o-mini", provider=provider)
+    model = OpenAIChatModel(model_name, provider=provider)
 
-    result = judge_agent.run_sync(prompt, model=model)
+    result = _judge_agent().run_sync(prompt, model=model)
     return float(result.output.correct)
+
+
+@register_metric("llm_accuracy")
+def _llm_accuracy(ctx: EvalContext) -> float:
+    return llm_accuracy(
+        question=ctx.question,
+        predicted=ctx.predicted,
+        gold=ctx.gold,
+        model_name=ctx.model,
+    )

@@ -60,16 +60,10 @@ class QuestionLog(BaseModel):
 
     error: str | None = Field(default=None, description="Error message if execution failed")
 
-    # Evaluation metrics (filled in after execution)
-    exact_match: float | None = Field(
-        default=None, description="Exact match score (0 or 1)"
-    )
-    f1_score: float | None = Field(default=None, description="Token-level F1 score")
-    context_recall: float | None = Field(
-        default=None, description="Fraction of gold paragraphs retrieved"
-    )
-    llm_accuracy: float | None = Field(
-        default=None, description="LLM-as-a-judge accuracy (1.0 = correct, 0.0 = incorrect)"
+    # Evaluation scores, keyed by metric name (the set is declared per benchmark
+    # in its manifest; a metric that does not apply to a question is omitted).
+    metrics: dict[str, float] = Field(
+        default_factory=dict, description="Per-question metric scores by name"
     )
 
 
@@ -84,12 +78,9 @@ class SystemResults(BaseModel):
         default_factory=list, description="Per-question execution logs"
     )
 
-    # Aggregate metrics
-    avg_exact_match: float = Field(default=0.0, description="Average EM score")
-    avg_f1: float = Field(default=0.0, description="Average F1 score")
-    avg_context_recall: float = Field(default=0.0, description="Average context recall")
-    avg_llm_accuracy: float = Field(
-        default=0.0, description="Average LLM-as-a-judge accuracy"
+    # Aggregate evaluation scores, averaged over questions, keyed by metric name.
+    avg_metrics: dict[str, float] = Field(
+        default_factory=dict, description="Average score per metric by name"
     )
 
     avg_tokens_per_question: float = Field(

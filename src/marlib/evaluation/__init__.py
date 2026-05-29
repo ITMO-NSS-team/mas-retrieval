@@ -1,8 +1,15 @@
-from marlib.evaluation.metrics import (
-    context_recall,
-    exact_match,
-    f1_score,
-    normalize_answer,
+# Import for side effect: registering the built-in metrics by name.
+from marlib.evaluation import llm_judge, metrics  # noqa: F401
+from marlib.evaluation.base import (
+    EvalContext,
+    available_metrics,
+    get_metric,
+    register_metric,
 )
 
-__all__ = ["exact_match", "f1_score", "context_recall", "normalize_answer"]
+__all__ = [
+    "EvalContext",
+    "available_metrics",
+    "get_metric",
+    "register_metric",
+]

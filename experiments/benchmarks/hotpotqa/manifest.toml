@@ -1,6 +1,7 @@
 name = "hotpotqa"
 collection = "hotpotqa"
 split = "fullwiki_dev"
+metrics = ["exact_match", "f1", "context_recall", "llm_accuracy"]
 description = """
 Multi-hop question answering over Wikipedia. Questions require finding and \
 reasoning over 2+ documents to produce a short factual answer (entity, yes/no, \

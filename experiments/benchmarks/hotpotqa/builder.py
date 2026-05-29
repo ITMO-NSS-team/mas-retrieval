@@ -62,6 +62,11 @@ class HotpotQABuilder(BenchmarkBuilder):
                     "titles": ex["supporting_facts"]["title"],
                     "sent_ids": ex["supporting_facts"]["sent_id"],
                 },
+                # Gold evidence in the corpus id space (doc_id = "<Title>_<hash>"),
+                # so context_recall hits via the title prefix.
+                "gold_doc_ids": sorted(
+                    {t.replace(" ", "_") for t in ex["supporting_facts"]["title"]}
+                ),
             }
             for ex in sampled
         ]

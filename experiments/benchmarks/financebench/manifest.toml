@@ -1,5 +1,6 @@
 name = "financebench"
 collection = "financebench"
+metrics = ["llm_accuracy", "context_recall"]
 description = """
 Financial question answering over SEC filings and company reports. Questions \
 require locating specific financial data and performing calculations or \

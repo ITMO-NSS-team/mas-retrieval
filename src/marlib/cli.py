@@ -10,17 +10,12 @@ from uuid import uuid4
 
 import typer
 
-from marlib.adapters import discover_adapters
+from marlib.adapters import discover_adapters, get_adapter_class
 from marlib.benchmarks import discover, load_spec
-from marlib.experiment import (
-    load_adapter,
-    load_benchmark,
-    run_system_on_benchmark,
-    save_results,
-)
 from marlib.log import logger
-from marlib.tracing.schemas import SystemResults
 from marlib.retriever.core import init_retriever
+from marlib.runner import run_system_on_benchmark, save_results
+from marlib.tracing.schemas import SystemResults
 
 # Discovered from the default content roots at import — used only for --help text.
 _AVAILABLE = list(discover())
@@ -60,7 +55,9 @@ def run(
     retrieve_top_k: int = typer.Option(20, help="Candidates retrieved before rerank."),
     rerank_top_k: int = typer.Option(10, help="Documents kept after rerank."),
     embedder: str = typer.Option("BAAI/bge-m3", help="Embedder model name."),
-    reranker: str = typer.Option("BAAI/bge-reranker-v2-m3", help="Reranker model name."),
+    reranker: str = typer.Option(
+        "BAAI/bge-reranker-v2-m3", help="Reranker model name."
+    ),
     data_dir: Path = typer.Option(
         Path("experiments/benchmarks"),
         help="Benchmark repository root (one subdir per benchmark).",
@@ -70,7 +67,6 @@ def run(
         help="Systems (adapters) repository root (one subdir per system).",
     ),
     results_dir: Path = typer.Option(Path("results"), help="Output root dir."),
-    seed: int = typer.Option(42, help="Random seed (recorded in provenance)."),
     note: str = typer.Option("", help="Free-text note describing this run."),
 ) -> None:
     """Run one benchmark across the given system(s) and save results + provenance."""
@@ -81,9 +77,7 @@ def run(
     available = discover_adapters(systems_dir)
     unknown = [s for s in systems if s not in available]
     if unknown:
-        raise typer.BadParameter(
-            f"Unknown system(s) {unknown}. Available: {available}"
-        )
+        raise typer.BadParameter(f"Unknown system(s) {unknown}. Available: {available}")
 
     # Unique run id avoids collisions between concurrent runs on one machine.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -116,7 +110,7 @@ def run(
         documents=retriever._collection.count(),
     )
 
-    questions = load_benchmark(spec, sample_n=sample_n)
+    questions = spec.load_questions(sample_n=sample_n)
     logger.info(f"Loaded {len(questions)} questions")
     sample_qs = [q.get("question", "") for q in questions[:5]]
 
@@ -129,7 +123,9 @@ def run(
 
     for system_name in systems:
         logger.info(f"Running system: {system_name}")
-        adapter = load_adapter(system_name, retriever, model, **adapter_kwargs)
+        adapter = get_adapter_class(system_name)(
+            retriever=retriever, model=model, **adapter_kwargs
+        )
         adapter.set_benchmark_context(benchmark, spec.description, sample_qs)
 
         results = run_system_on_benchmark(
@@ -137,14 +133,12 @@ def run(
             questions=questions,
             benchmark_name=benchmark,
             model=model,
+            metrics=spec.metrics,
         )
 
         logger.success(
             f"Results for {system_name}/{benchmark}",
-            em=round(results.avg_exact_match, 3),
-            f1=round(results.avg_f1, 3),
-            acc=round(results.avg_llm_accuracy, 3),
-            context_recall=round(results.avg_context_recall, 3),
+            **{k: round(v, 3) for k, v in results.avg_metrics.items()},
             tokens_per_q=round(results.avg_tokens_per_question),
             prompt_tokens_per_q=round(results.avg_prompt_tokens_per_question),
             completion_tokens_per_q=round(results.avg_completion_tokens_per_question),
@@ -156,10 +150,7 @@ def run(
         summaries.append(
             {
                 "system": results.system_name,
-                "avg_llm_accuracy": results.avg_llm_accuracy,
-                "avg_f1": results.avg_f1,
-                "avg_exact_match": results.avg_exact_match,
-                "avg_context_recall": results.avg_context_recall,
+                "metrics": results.avg_metrics,
                 "avg_tokens": results.avg_tokens_per_question,
                 "failed": results.failed_questions,
                 "total": results.total_questions,
@@ -180,7 +171,7 @@ def run(
         "index_path": str(spec.index_path),
         "data_dir": str(data_dir),
         "systems_dir": str(systems_dir),
-        "seed": seed,
+        "metrics": list(spec.metrics),
     }
     run_meta = {
         "run_id": run_id,

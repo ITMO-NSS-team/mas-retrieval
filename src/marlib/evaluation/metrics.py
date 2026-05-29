@@ -4,6 +4,8 @@ import re
 import string
 from collections import Counter
 
+from marlib.evaluation.base import EvalContext, register_metric
+
 
 def normalize_answer(text: str) -> str:
     """Normalize answer text for comparison.
@@ -85,64 +87,47 @@ def f1_score(pred: str, gold: str) -> float:
 
 def context_recall(
     retrieved_doc_ids: list[str],
-    gold_paragraphs: list[str],
+    gold_doc_ids: list[str],
 ) -> float:
-    """Compute context recall: fraction of gold paragraphs retrieved.
+    """Fraction of gold doc_ids surfaced by the retriever.
 
-    For multi-hop QA, gold paragraphs are the supporting facts needed
-    to answer the question. This metric measures how well the retriever
-    surfaces the required evidence.
+    A gold id "hits" if some retrieved id equals it or is one of its parts
+    (``retrieved.startswith(gold + "_")``). This covers both exact ids (e.g.
+    FinanceBench ``slug_p12``) and grouped ids (e.g. HotpotQA ``Title_<hash>``,
+    where the gold is the title prefix) without the metric knowing which
+    benchmark it is scoring — the builder emits ``gold_doc_ids`` in the corpus's
+    own id space.
 
     Args:
-        retrieved_doc_ids: List of retrieved document IDs.
-        gold_paragraphs: List of gold supporting paragraph identifiers
-            (typically Wikipedia article titles from HotpotQA).
+        retrieved_doc_ids: Document IDs returned by retrieval tool calls.
+        gold_doc_ids: Gold supporting document IDs for the question.
 
     Returns:
         Recall score between 0 and 1.
     """
-    if not gold_paragraphs:
-        return 1.0  # No gold paragraphs needed
-
-    retrieved_set = set(retrieved_doc_ids)
-
-    # For HotpotQA, gold paragraphs are article titles
-    # We check if any retrieved doc starts with the gold title
-    hits = 0
-    for gold in gold_paragraphs:
-        gold_normalized = gold.replace(" ", "_")
-        for doc_id in retrieved_set:
-            # doc_id format: Title_hash, so check if it starts with gold title
-            if doc_id.startswith(gold_normalized + "_") or doc_id == gold_normalized:
-                hits += 1
-                break
-
-    return hits / len(gold_paragraphs)
+    retrieved = set(retrieved_doc_ids)
+    hits = sum(
+        any(r == gold or r.startswith(gold + "_") for r in retrieved)
+        for gold in gold_doc_ids
+    )
+    return hits / len(gold_doc_ids)
 
 
-def evaluate_question(
-    predicted_answer: str,
-    gold_answer: str,
-    retrieved_doc_ids: list[str] | None = None,
-    gold_paragraphs: list[str] | None = None,
-) -> dict[str, float]:
-    """Evaluate a single question across all metrics.
+# --- Registered metrics (uniform metric(ctx) -> float | None signature) -------
 
-    Args:
-        predicted_answer: System's predicted answer.
-        gold_answer: Ground truth answer.
-        retrieved_doc_ids: Optional list of retrieved document IDs.
-        gold_paragraphs: Optional list of gold supporting paragraphs.
 
-    Returns:
-        Dictionary with em, f1, and optionally context_recall scores.
-    """
-    results = {
-        "exact_match": exact_match(predicted_answer, gold_answer),
-        "f1": f1_score(predicted_answer, gold_answer),
-    }
+@register_metric("exact_match")
+def _exact_match(ctx: EvalContext) -> float:
+    return exact_match(ctx.predicted, ctx.gold)
 
-    if retrieved_doc_ids is not None and gold_paragraphs is not None:
-        results["context_recall"] = context_recall(retrieved_doc_ids, gold_paragraphs)
 
-    return results
+@register_metric("f1")
+def _f1(ctx: EvalContext) -> float:
+    return f1_score(ctx.predicted, ctx.gold)
+
+
+@register_metric("context_recall")
+def _context_recall(ctx: EvalContext) -> float | None:
+    if not ctx.gold_doc_ids:
+        return None  # not applicable without gold evidence
+    return context_recall(ctx.retrieved_doc_ids, ctx.gold_doc_ids)

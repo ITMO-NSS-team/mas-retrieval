@@ -19,6 +19,22 @@ from marlib.log import logger
 _PDF_BASE_URL = "https://raw.githubusercontent.com/patronus-ai/financebench/main/pdfs"
 
 
+def _gold_doc_ids(ex: dict) -> list[str]:
+    """Gold evidence page ids ("<slug>_p<page>") from a FinanceBench example."""
+    evidence = ex.get("evidence") or []
+    if not isinstance(evidence, list):
+        evidence = [evidence]
+    ids: list[str] = []
+    for ev in evidence:
+        if not isinstance(ev, dict):
+            continue
+        doc_name = ev.get("doc_name") or ex.get("doc_name") or ""
+        page_num = ev.get("evidence_page_num")
+        if doc_name and page_num is not None:
+            ids.append(f"{slugify(doc_name)}_p{page_num}")
+    return sorted(set(ids))
+
+
 @register("financebench")
 class FinanceBenchBuilder(BenchmarkBuilder):
     """Builder for the FinanceBench benchmark."""
@@ -52,6 +68,9 @@ class FinanceBenchBuilder(BenchmarkBuilder):
                 "gics_sector": ex.get("gics_sector"),
                 "doc_type": ex.get("doc_type"),
                 "doc_period": ex.get("doc_period"),
+                # Gold pages in the corpus id space (doc_id = "<slug>_p<page>"),
+                # matched exactly by context_recall.
+                "gold_doc_ids": _gold_doc_ids(ex),
             }
             for ex in ds
         ]
