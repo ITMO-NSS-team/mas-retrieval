@@ -2,9 +2,8 @@
 
 Reusable building blocks, decoupled from the CLI surface (`cli.py`) so they can
 be imported and tested on their own:
-- ADAPTERS registry (available systems)
-- BENCHMARKS registry (single source of truth for benchmark presets)
-- load_benchmark / load_adapter
+- load_adapter (looks up the auto-registered adapter registry)
+- load_benchmark (reads a discovered BenchmarkSpec)
 - run_system_on_benchmark (per-question execution + metric aggregation)
 - save_results
 """
@@ -12,15 +11,13 @@ be imported and tested on their own:
 from __future__ import annotations
 
 import json
-import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from tqdm import tqdm
 
-from marlib.adapters.base import AbstractAdapter
-from marlib.adapters.fedotmas import FedotMASAdapter
+from marlib.adapters import AbstractAdapter, get_adapter_class
+from marlib.benchmarks import BenchmarkSpec, slugify
 from marlib.evaluation.llm_judge import llm_accuracy
 from marlib.evaluation.metrics import evaluate_question
 from marlib.log import logger
@@ -28,84 +25,21 @@ from marlib.retriever.core import Retriever
 from marlib.tracing.schemas import QuestionLog, SystemResults
 
 
-def _slugify(text: str) -> str:
-    """Lowercase text and replace non-alphanumeric characters with underscores."""
-    text = text.lower()
-    text = re.sub(r"[^a-z0-9]+", "_", text)
-    return text.strip("_")
-
-
-# Registry of available adapters
-ADAPTERS: dict[str, type[AbstractAdapter]] = {
-    # "naive_rag": NaiveRAGAdapter,
-    # "single_agent": SingleAgentAdapter,
-    # "swarm_agentic": SwarmAgenticAdapter,
-    # "automas": AutoMASAdapter,
-    "fedotmas": FedotMASAdapter,
-    # "meta_agent": MetaAgentAdapter,
-    # "mas_zero": MASZeroAdapter,
-    # "ma_rag": MARagAdapter,
-}
-
-
-@dataclass(frozen=True)
-class BenchmarkSpec:
-    """Static description of a benchmark — the only "preset" we keep in code."""
-
-    collection_name: str
-    file: str  # jsonl filename under the benchmarks data dir
-    description: str
-    split: str | None = None
-
-
-# Single source of truth for benchmark presets (replaces per-benchmark YAML).
-BENCHMARKS: dict[str, BenchmarkSpec] = {
-    "hotpotqa": BenchmarkSpec(
-        collection_name="hotpotqa",
-        file="hotpotqa_sample.jsonl",
-        split="fullwiki_dev",
-        description=(
-            "Multi-hop question answering over Wikipedia. Questions require "
-            "finding and reasoning over 2+ documents to produce a short "
-            "factual answer (entity, yes/no, number, or short phrase)."
-        ),
-    ),
-    "financebench": BenchmarkSpec(
-        collection_name="financebench",
-        file="financebench_sample.jsonl",
-        description=(
-            "Financial question answering over SEC filings and company reports. "
-            "Questions require locating specific financial data and performing "
-            "calculations or comparisons to produce precise numerical or factual answers."
-        ),
-    ),
-}
-
-
 def load_benchmark(
-    benchmark_name: str,
+    spec: BenchmarkSpec,
     sample_n: int | None = None,
-    data_dir: str | Path = "experiments/data/benchmarks",
 ) -> list[dict[str, Any]]:
-    """Load a benchmark dataset from its preset in BENCHMARKS.
+    """Load a benchmark's questions from its directory (``spec.questions_path``).
 
     Args:
-        benchmark_name: Key into BENCHMARKS (e.g. hotpotqa, financebench).
+        spec: Benchmark spec (see :func:`marlib.benchmarks.load_spec`).
         sample_n: Optional cap on number of questions (None = full set).
-        data_dir: Directory containing benchmark jsonl files.
 
     Returns:
         List of question dictionaries.
     """
-    if benchmark_name not in BENCHMARKS:
-        raise ValueError(
-            f"Unknown benchmark: {benchmark_name}. Available: {list(BENCHMARKS.keys())}"
-        )
-
-    filepath = Path(data_dir) / BENCHMARKS[benchmark_name].file
-
     questions = []
-    with open(filepath) as f:
+    with open(spec.questions_path) as f:
         for line in f:
             questions.append(json.loads(line))
 
@@ -132,12 +66,7 @@ def load_adapter(
     Returns:
         Initialized adapter instance.
     """
-    if system_name not in ADAPTERS:
-        raise ValueError(
-            f"Unknown system: {system_name}. Available: {list(ADAPTERS.keys())}"
-        )
-
-    adapter_class = ADAPTERS[system_name]
+    adapter_class = get_adapter_class(system_name)
     return adapter_class(retriever=retriever, model=model, **kwargs)
 
 
@@ -166,7 +95,7 @@ def extract_gold_paragraphs(question: dict[str, Any]) -> list[str]:
             doc_name = ev.get("doc_name", question.get("doc_name", ""))
             page_num = ev.get("evidence_page_num")
             if doc_name and page_num is not None:
-                ids.append(f"{_slugify(doc_name)}_p{page_num}")
+                ids.append(f"{slugify(doc_name)}_p{page_num}")
         return ids
 
     return []

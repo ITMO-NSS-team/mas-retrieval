@@ -14,7 +14,7 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from marlib.adapters.base import AbstractAdapter
+from marlib.adapters.base import AbstractAdapter, register
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
@@ -83,6 +83,7 @@ def calculate(ctx: RunContext[SingleAgentDeps], expression: str) -> str:
     return result
 
 
+@register("single_agent")
 class SingleAgentAdapter(AbstractAdapter):
     """Single iterative agent with search tool, powered by pydantic-ai."""
 

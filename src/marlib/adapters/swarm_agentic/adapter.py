@@ -7,7 +7,7 @@ from typing import Any
 
 from langchain_openai import ChatOpenAI
 
-from marlib.adapters.base import AbstractAdapter
+from marlib.adapters.base import AbstractAdapter, register
 from marlib.adapters.swarm_agentic.func import get_forward, set_forward
 from marlib.adapters.swarm_agentic.logger import setup_logger
 from marlib.adapters.swarm_agentic.role import Team
@@ -16,6 +16,7 @@ from marlib.tracing.tracker import TokenTracker
 from marlib.retriever.core import Retriever
 
 
+@register("swarm_agentic")
 class SwarmAgenticAdapter(AbstractAdapter):
     """SwarmAgentic multi-agent team adapter (zero-shot, no PSO).
 

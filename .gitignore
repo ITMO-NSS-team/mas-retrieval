@@ -8,7 +8,15 @@ wheels/
 
 # Virtual environments
 .venv
-experiments
+
+# experiments/ holds generated/downloaded data and is not tracked, EXCEPT the
+# per-benchmark manifest.toml files, which define each benchmark.
+/experiments/*
+!/experiments/data
+/experiments/data/*
+!/experiments/data/benchmarks
+/experiments/data/benchmarks/*/*
+!/experiments/data/benchmarks/*/manifest.toml
 
 uv.lock
 results/

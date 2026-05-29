@@ -22,9 +22,9 @@ from uuid import uuid4
 
 import typer
 
+from marlib.adapters import available_adapters
+from marlib.benchmarks import discover, load_spec
 from marlib.experiment import (
-    ADAPTERS,
-    BENCHMARKS,
     load_adapter,
     load_benchmark,
     run_system_on_benchmark,
@@ -33,6 +33,10 @@ from marlib.experiment import (
 from marlib.log import logger
 from marlib.tracing.schemas import SystemResults
 from marlib.retriever.core import init_retriever
+
+# Discovered at import — used only for --help text.
+_AVAILABLE = list(discover())
+_SYSTEMS = available_adapters()
 
 
 def _git_sha() -> str | None:
@@ -51,12 +55,13 @@ def _git_sha() -> str | None:
 
 def run(
     benchmark: str = typer.Option(
-        "financebench", help=f"Benchmark preset. One of: {list(BENCHMARKS)}"
+        "financebench",
+        help=f"Benchmark (discovered from --data-dir). Available: {_AVAILABLE}",
     ),
     model: str = typer.Option("openai/gpt-4o-mini", help="LLM model identifier."),
     systems: list[str] = typer.Option(
         ["fedotmas"],
-        help=f"System(s) to run in this process. Available: {list(ADAPTERS)}",
+        help=f"System(s) to run in this process. Available: {_SYSTEMS}",
     ),
     sample_n: Optional[int] = typer.Option(
         None, help="Cap on number of questions (default: full set)."
@@ -68,28 +73,25 @@ def run(
     rerank_top_k: int = typer.Option(10, help="Documents kept after rerank."),
     embedder: str = typer.Option("BAAI/bge-m3", help="Embedder model name."),
     reranker: str = typer.Option("BAAI/bge-reranker-v2-m3", help="Reranker model name."),
-    index_path: Path = typer.Option(
-        Path("experiments/data/chroma_index"), help="Base ChromaDB index dir."
-    ),
     data_dir: Path = typer.Option(
-        Path("experiments/data/benchmarks"), help="Benchmark jsonl dir."
+        Path("experiments/data/benchmarks"),
+        help="Benchmark repository root (one subdir per benchmark).",
     ),
     results_dir: Path = typer.Option(Path("results"), help="Output root dir."),
     seed: int = typer.Option(42, help="Random seed (recorded in provenance)."),
     note: str = typer.Option("", help="Free-text note describing this run."),
 ) -> None:
     """Run one benchmark across the given system(s) and save results + provenance."""
-    if benchmark not in BENCHMARKS:
-        raise typer.BadParameter(
-            f"Unknown benchmark '{benchmark}'. Available: {list(BENCHMARKS)}"
-        )
-    unknown = [s for s in systems if s not in ADAPTERS]
+    try:
+        spec = load_spec(benchmark, data_dir)
+    except ValueError as e:
+        raise typer.BadParameter(str(e))
+    available = available_adapters()
+    unknown = [s for s in systems if s not in available]
     if unknown:
         raise typer.BadParameter(
-            f"Unknown system(s) {unknown}. Available: {list(ADAPTERS)}"
+            f"Unknown system(s) {unknown}. Available: {available}"
         )
-
-    spec = BENCHMARKS[benchmark]
 
     # Unique run id avoids collisions between concurrent runs on one machine.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -110,19 +112,19 @@ def run(
         "reranker": reranker,
         "retrieve_top_k": retrieve_top_k,
         "rerank_top_k": rerank_top_k,
-        "index_path": str(index_path),
-        "collection_name": spec.collection_name,
+        "index_path": str(spec.index_path),
+        "collection_name": spec.collection,
     }
 
     logger.info("Initializing retriever...")
     retriever = init_retriever(retriever_config)
-    retriever.set_collection(spec.collection_name)
+    retriever.set_collection(spec.collection)
     logger.info(
-        f"Collection '{spec.collection_name}' loaded",
+        f"Collection '{spec.collection}' loaded",
         documents=retriever._collection.count(),
     )
 
-    questions = load_benchmark(benchmark, sample_n=sample_n, data_dir=data_dir)
+    questions = load_benchmark(spec, sample_n=sample_n)
     logger.info(f"Loaded {len(questions)} questions")
     sample_qs = [q.get("question", "") for q in questions[:5]]
 
@@ -183,7 +185,7 @@ def run(
         "rerank_top_k": rerank_top_k,
         "embedder": embedder,
         "reranker": reranker,
-        "index_path": str(index_path),
+        "index_path": str(spec.index_path),
         "data_dir": str(data_dir),
         "seed": seed,
     }

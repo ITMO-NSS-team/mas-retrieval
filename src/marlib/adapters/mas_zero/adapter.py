@@ -17,7 +17,7 @@ from typing import Any
 import backoff
 import openai
 
-from marlib.adapters.base import AbstractAdapter
+from marlib.adapters.base import AbstractAdapter, register
 from marlib.adapters.mas_zero.blocks import RAG_BLOCKS
 from marlib.adapters.mas_zero.core import (
     ANSWER_PATTERN,
@@ -47,6 +47,7 @@ _DEFAULT_DEBATE_ROLES = [
 ]
 
 
+@register("mas_zero")
 class MASZeroAdapter(AbstractAdapter):
     """MAS-Zero meta-agent adapter for RAG benchmarks.
 

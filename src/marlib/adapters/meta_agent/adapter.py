@@ -7,7 +7,7 @@ import os
 import re
 from typing import Any
 
-from marlib.adapters.base import AbstractAdapter
+from marlib.adapters.base import AbstractAdapter, register
 from marlib.adapters.meta_agent.fsm_gen import generate_mas
 from marlib.adapters.meta_agent.multi_agent import MultiAgentSystem
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
@@ -24,6 +24,7 @@ _TASK_DESCRIPTION = (
 )
 
 
+@register("meta_agent")
 class MetaAgentAdapter(AbstractAdapter):
     """MetaAgent FSM-based multi-agent adapter.
 

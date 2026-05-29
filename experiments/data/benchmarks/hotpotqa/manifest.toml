@@ -1,0 +1,8 @@
+name = "hotpotqa"
+collection = "hotpotqa"
+split = "fullwiki_dev"
+description = """
+Multi-hop question answering over Wikipedia. Questions require finding and \
+reasoning over 2+ documents to produce a short factual answer (entity, yes/no, \
+number, or short phrase).
+"""

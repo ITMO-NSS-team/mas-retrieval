@@ -9,11 +9,12 @@ from typing import Any
 from automas.meta_agents import GraphGenerator, PoolGenerator
 from automas.pipeline import PipelineBuilder
 
-from marlib.adapters.base import AbstractAdapter
+from marlib.adapters.base import AbstractAdapter, register
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
 
 
+@register("automas")
 class AutoMASAdapter(AbstractAdapter):
     def __init__(
         self, retriever: Any, model: str = "gpt-4o-mini", **kwargs: Any

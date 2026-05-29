@@ -1,14 +1,11 @@
-# Download benchmarks
-download: download-hotpotqa download-financebench download-financebench-pdfs
+# Download benchmarks (financebench download includes its source PDFs)
+download: download-hotpotqa download-financebench
 
 download-hotpotqa:
     uv run download-benchmarks --benchmark hotpotqa
 
 download-financebench:
     uv run download-benchmarks --benchmark financebench
-
-download-financebench-pdfs:
-    uv run download-benchmarks --benchmark financebench-pdfs
 
 # Prepare corpora
 prepare: prepare-hotpotqa prepare-financebench

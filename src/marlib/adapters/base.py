@@ -106,3 +106,38 @@ class AbstractAdapter(ABC):
         Returns:
             Tuple of (predicted_answer, QuestionLog).
         """
+
+
+# --- Adapter registry ---------------------------------------------------------
+# Adapters self-register via @register. The package __init__ imports each
+# adapter module defensively, so the registry reflects only the systems whose
+# (often heavy / optional) dependencies are actually installed — there is no
+# central dict to edit or comment out.
+
+_ADAPTERS: dict[str, type[AbstractAdapter]] = {}
+
+
+def register(name: str):
+    """Class decorator registering an :class:`AbstractAdapter` under ``name``."""
+
+    def deco(cls: type[AbstractAdapter]) -> type[AbstractAdapter]:
+        if name in _ADAPTERS:
+            raise ValueError(f"Adapter '{name}' already registered")
+        _ADAPTERS[name] = cls
+        return cls
+
+    return deco
+
+
+def available_adapters() -> list[str]:
+    """Names of adapters that registered successfully (import the package first)."""
+    return sorted(_ADAPTERS)
+
+
+def get_adapter_class(name: str) -> type[AbstractAdapter]:
+    """Return the registered adapter class for ``name``, or raise with the list."""
+    if name not in _ADAPTERS:
+        raise ValueError(
+            f"Unknown system '{name}'. Available: {available_adapters()}"
+        )
+    return _ADAPTERS[name]

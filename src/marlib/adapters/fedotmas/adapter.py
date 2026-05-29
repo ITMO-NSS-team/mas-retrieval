@@ -10,11 +10,12 @@ from typing import Any
 from fedotmas import MAS, PipelineConfig
 from fedotmas.mcp.registry import MCPServerConfig, StdioMCPServer
 
-from marlib.adapters.base import AbstractAdapter
+from marlib.adapters.base import AbstractAdapter, register
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
 
 
+@register("fedotmas")
 class FedotMASAdapter(AbstractAdapter):
     def __init__(
         self, retriever: Any, model: str = "gpt-4o-mini", **kwargs: Any
