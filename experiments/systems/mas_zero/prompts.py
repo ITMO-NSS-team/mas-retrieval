@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 
-
 SYSTEM_PROMPT = (
     "You are a helpful assistant.\n\n"
     "Reply EXACTLY with the following JSON format.\n"

@@ -7,7 +7,7 @@ from langchain_core.prompts import PromptTemplate
 from ..logger import log
 from .base import TASK_MINI
 
-INIT_TEAM_TEMPLATE = '''You are an expert in designing a highly efficient, specialized, and collaborative multi-agent team for a specific task.
+INIT_TEAM_TEMPLATE = """You are an expert in designing a highly efficient, specialized, and collaborative multi-agent team for a specific task.
 
 **Requirements:**
 - The team must break down the task into highly specialized, modular roles.
@@ -42,7 +42,7 @@ Now, giving the following task:
 </task>
 
 Please design a detailed multi-agent collaborative team that could efficiently solve the <task>.
-'''
+"""
 
 schema = {
     "title": "Plan",

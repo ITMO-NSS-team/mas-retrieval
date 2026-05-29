@@ -8,13 +8,14 @@ import re
 from typing import Any
 
 from marlib.adapters.base import AbstractAdapter, register
-from .fsm_gen import generate_mas
-from .multi_agent import MultiAgentSystem
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
 from marlib.log import logger
+from marlib.retriever.core import Document, Retriever
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
-from marlib.retriever.core import Document, Retriever
+
+from .fsm_gen import generate_mas
+from .multi_agent import MultiAgentSystem
 
 _TASK_DESCRIPTION = (
     "Answer questions by retrieving relevant documents, optionally reranking "
@@ -150,8 +151,7 @@ class MetaAgentAdapter(AbstractAdapter):
                 if s["state_id"] == t["to_state"]:
                     to_name = agents.get(s["agent_id"], {}).get("name", "?")
             lines.append(
-                f"  {t['from_state']} ({from_name}) "
-                f"---> {t['to_state']} ({to_name})"
+                f"  {t['from_state']} ({from_name}) ---> {t['to_state']} ({to_name})"
             )
             lines.append(f"       when: {t['condition']}")
 
@@ -178,7 +178,8 @@ class MetaAgentAdapter(AbstractAdapter):
         )
 
     def _make_tool_executor(
-        self, tracker: TokenTracker,
+        self,
+        tracker: TokenTracker,
     ) -> Any:
         """Build a closure that dispatches tool calls to shared tools."""
         last_retrieved: list[Document] = []
@@ -201,7 +202,10 @@ class MetaAgentAdapter(AbstractAdapter):
                 top_k = int(kwargs.get("top_k", 10))
                 with tracker.track_tool("rerank", query, top_k) as results:
                     docs, formatted = do_rerank(
-                        retriever, query, last_retrieved, top_k,
+                        retriever,
+                        query,
+                        last_retrieved,
+                        top_k,
                     )
                     last_retrieved = docs
                     results.extend([d.doc_id for d in docs])

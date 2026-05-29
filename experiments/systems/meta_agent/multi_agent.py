@@ -66,8 +66,7 @@ class MultiAgentSystem:
                 and self.states[t["from_state"]]["agent_id"] == agent["agent_id"]
             ):
                 transition_conditions += (
-                    f"- If {t['condition']}, output "
-                    f"`<STATE_TRANS>: {t['to_state']}`.\n"
+                    f"- If {t['condition']}, output `<STATE_TRANS>: {t['to_state']}`.\n"
                 )
 
         transition_conditions += (
@@ -81,12 +80,14 @@ class MultiAgentSystem:
     # ── Tool-call parsing ──────────────────────────────────────
 
     _TOOL_CALL_RE = re.compile(
-        r"<tool_call>\s*(\w+)\(([^)]*)\)\s*</tool_call>", re.DOTALL,
+        r"<tool_call>\s*(\w+)\(([^)]*)\)\s*</tool_call>",
+        re.DOTALL,
     )
     _KWARG_RE = re.compile(r'(\w+)\s*=\s*(?:"([^"]*)"|(\d+))')
 
     def _extract_tool_calls(
-        self, output: str,
+        self,
+        output: str,
     ) -> list[tuple[str, dict[str, Any]]]:
         calls: list[tuple[str, dict[str, Any]]] = []
         for m in self._TOOL_CALL_RE.finditer(output):
@@ -138,7 +139,9 @@ class MultiAgentSystem:
         llm = self.llms[agent["agent_id"]]
 
         if state["is_initial"] and ini_flag == 0:
-            instruction = state["instruction"] + "\nThe user input is:\n" + (input_data or "")
+            instruction = (
+                state["instruction"] + "\nThe user input is:\n" + (input_data or "")
+            )
             for all_llm in self.llms.values():
                 all_llm.add_message("The user input is:\n" + (input_data or ""))
         elif ini_flag == 0:
@@ -180,9 +183,7 @@ class MultiAgentSystem:
                     results_parts.append(f"[{name}] {result}")
 
                 tool_output = "\n".join(results_parts)
-                all_empty = all(
-                    "No results found" in r for r in results_parts
-                )
+                all_empty = all("No results found" in r for r in results_parts)
                 hint = ""
                 if all_empty:
                     empty_retrieval_count += 1
@@ -222,7 +223,10 @@ class MultiAgentSystem:
                             "Message from " + agent["name"] + "\n" + info
                         )
                 return self._run_agent(
-                    next_state_id, info, max_transitions, transition_count,
+                    next_state_id,
+                    info,
+                    max_transitions,
+                    transition_count,
                 )
 
             instruction = (
@@ -243,7 +247,10 @@ class MultiAgentSystem:
                             "Message from " + agent["name"] + "\n" + info
                         )
                 return self._run_agent(
-                    next_state_id, info, max_transitions, transition_count,
+                    next_state_id,
+                    info,
+                    max_transitions,
+                    transition_count,
                 )
 
         return self._extract_info(output)
@@ -252,17 +259,12 @@ class MultiAgentSystem:
 
     def start(self, user_input: str, max_transitions: int = 10) -> tuple[str, int]:
         """Run the FSM on user_input. Returns (result, token_cost)."""
-        initial_costs = {
-            aid: llm.get_token_cost() for aid, llm in self.llms.items()
-        }
+        initial_costs = {aid: llm.get_token_cost() for aid, llm in self.llms.items()}
 
-        initial_state = next(
-            s for s in self.states.values() if s["is_initial"]
-        )
+        initial_state = next(s for s in self.states.values() if s["is_initial"])
         result = self._run_agent(initial_state["state_id"], user_input, max_transitions)
 
         total_cost = sum(
-            llm.get_token_cost() - initial_costs[aid]
-            for aid, llm in self.llms.items()
+            llm.get_token_cost() - initial_costs[aid] for aid, llm in self.llms.items()
         )
         return result, total_cost

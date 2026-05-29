@@ -6,6 +6,8 @@ from typing import Union
 
 from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 
+from marlib.adapters.tools import do_rerank, do_retrieve
+
 from .agents import (
     QAAnswer,
     answer_agent,
@@ -16,7 +18,6 @@ from .agents import (
 )
 from .prompts import ANSWER_AGGREGATE_SYSTEM_PROMPT
 from .state import MARagDeps, MARagState, StepResult
-from marlib.adapters.tools import do_rerank, do_retrieve
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,8 @@ def _log_usage(deps: MARagDeps, result) -> None:
 @dataclass
 class CreatePlan(BaseNode[MARagState, MARagDeps, str]):
     async def run(
-        self, ctx: GraphRunContext[MARagState, MARagDeps],
+        self,
+        ctx: GraphRunContext[MARagState, MARagDeps],
     ) -> Union["ExecuteStep", End[str]]:
         question = ctx.state.question
         logger.info("Creating plan for: %s", question)
@@ -61,7 +63,8 @@ class CreatePlan(BaseNode[MARagState, MARagDeps, str]):
 @dataclass
 class ExecuteStep(BaseNode[MARagState, MARagDeps, str]):
     async def run(
-        self, ctx: GraphRunContext[MARagState, MARagDeps],
+        self,
+        ctx: GraphRunContext[MARagState, MARagDeps],
     ) -> Union["ExecuteStep", "Summarize", End[str]]:
         state = ctx.state
         deps = ctx.deps
@@ -88,7 +91,8 @@ class ExecuteStep(BaseNode[MARagState, MARagDeps, str]):
             f"Results of finished steps:\n{memory if memory else 'None yet'}"
         )
         definer_result = await step_definer_agent.run(
-            definer_prompt, model=deps.model,
+            definer_prompt,
+            model=deps.model,
         )
         _log_usage(deps, definer_result)
 
@@ -119,7 +123,9 @@ class ExecuteStep(BaseNode[MARagState, MARagDeps, str]):
         return ExecuteStep()
 
     async def _execute_qa(
-        self, deps: MARagDeps, query: str,
+        self,
+        deps: MARagDeps,
+        query: str,
     ) -> tuple[QAAnswer, list[str]]:
         """Retrieve, rerank, extract per-doc notes, then answer."""
         with deps.tracker.track_tool("retrieve", query, deps.top_k_retrieve) as rid:
@@ -129,7 +135,10 @@ class ExecuteStep(BaseNode[MARagState, MARagDeps, str]):
 
         with deps.tracker.track_tool("rerank", query, deps.top_k_rerank) as rid:
             docs, _ = do_rerank(
-                deps.retriever, query, deps._last_retrieved, deps.top_k_rerank,
+                deps.retriever,
+                query,
+                deps._last_retrieved,
+                deps.top_k_rerank,
             )
             deps._last_retrieved = docs
             rid.extend([d.doc_id for d in docs])
@@ -152,16 +161,15 @@ class ExecuteStep(BaseNode[MARagState, MARagDeps, str]):
             context_parts.append(f"doc_{doc.doc_id}: [{note}]")
         context = "\n\n".join(context_parts)
 
-        user_msg = (
-            f"Retrieved documents:\n{context}\n\n"
-            f"Question: {query}"
-        )
+        user_msg = f"Retrieved documents:\n{context}\n\nQuestion: {query}"
         result = await answer_agent.run(user_msg, model=deps.model)
         _log_usage(deps, result)
         return result.output, doc_ids
 
     async def _execute_aggregate(
-        self, deps: MARagDeps, query: str,
+        self,
+        deps: MARagDeps,
+        query: str,
     ) -> QAAnswer:
         """Answer an aggregate question (no retrieval)."""
         result = await answer_agent.run(
@@ -179,7 +187,8 @@ class ExecuteStep(BaseNode[MARagState, MARagDeps, str]):
 @dataclass
 class Summarize(BaseNode[MARagState, MARagDeps, str]):
     async def run(
-        self, ctx: GraphRunContext[MARagState, MARagDeps],
+        self,
+        ctx: GraphRunContext[MARagState, MARagDeps],
     ) -> End[str]:
         state = ctx.state
         deps = ctx.deps

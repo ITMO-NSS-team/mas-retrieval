@@ -50,7 +50,7 @@ schema = {
     "properties": {
         "code": {
             "type": "string",
-            "description": '''Design the function in Python code. You must write a COMPLETE CODE in "code": Your code will be part of the entire project, so please implement complete, reliable, reusable code snippets. MUST response in format "def forward(team):\n{Your code here}\nreturn answer".''',
+            "description": """Design the function in Python code. You must write a COMPLETE CODE in "code": Your code will be part of the entire project, so please implement complete, reliable, reusable code snippets. MUST response in format "def forward(team):\n{Your code here}\nreturn answer".""",
         },
     },
     "required": ["code"],

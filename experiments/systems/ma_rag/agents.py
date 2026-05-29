@@ -13,7 +13,6 @@ from .prompts import (
     SUMMARY_SYSTEM_PROMPT,
 )
 
-
 # ── Output models ────────────────────────────────────────────
 
 

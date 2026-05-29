@@ -8,12 +8,13 @@ from typing import Any
 from langchain_openai import ChatOpenAI
 
 from marlib.adapters.base import AbstractAdapter, register
+from marlib.retriever.core import Retriever
+from marlib.tracing.schemas import QuestionLog
+from marlib.tracing.tracker import TokenTracker
+
 from .func import get_forward, set_forward
 from .logger import setup_logger
 from .role import Team
-from marlib.tracing.schemas import QuestionLog
-from marlib.tracing.tracker import TokenTracker
-from marlib.retriever.core import Retriever
 
 
 @register("swarm_agentic")
@@ -61,15 +62,20 @@ class SwarmAgenticAdapter(AbstractAdapter):
 
         # 1. Generate team (roles + workflow) from task description
         team = Team(
-            llm=llm_init, logger=logger,
-            retriever=self._retriever, tracker=None,
+            llm=llm_init,
+            logger=logger,
+            retriever=self._retriever,
+            tracker=None,
         )
         team.init(llm=llm_init)
         team.inject_tool_roles()
 
         # 2. Generate forward code
         self._forward_code = get_forward(
-            llm_init, logger, team.to_str(), team.workflow,
+            llm_init,
+            logger,
+            team.to_str(),
+            team.workflow,
         )
         self._team_dict = team.save_into_dict()
         self._initialized = True
@@ -105,8 +111,10 @@ class SwarmAgenticAdapter(AbstractAdapter):
             llm = self._make_llm()
 
             team = Team(
-                llm=llm, logger=None,
-                retriever=self._retriever, tracker=tracker,
+                llm=llm,
+                logger=None,
+                retriever=self._retriever,
+                tracker=tracker,
             )
             team.update(self._team_dict)
             team.inject_tool_roles()

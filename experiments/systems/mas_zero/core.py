@@ -9,13 +9,11 @@ Minimal extraction from MAS-Zero's search.py and common.py, adapted to:
 from __future__ import annotations
 
 import json
+import logging
 import os
-import re
 import uuid
 from collections import namedtuple
 from typing import Any, Callable
-
-import logging
 
 import backoff
 import openai
@@ -96,13 +94,10 @@ class LLMAgentBase:
                 input_infos_text += f"{content}\n\n"
             elif iteration_idx != -1:
                 input_infos_text += (
-                    f"### {field_name} #{iteration_idx + 1} by {author}:\n"
-                    f"{content}\n\n"
+                    f"### {field_name} #{iteration_idx + 1} by {author}:\n{content}\n\n"
                 )
             else:
-                input_infos_text += (
-                    f"### {field_name} by {author}:\n{content}\n\n"
-                )
+                input_infos_text += f"### {field_name} by {author}:\n{content}\n\n"
 
         if is_sub_task:
             prompt = (
@@ -124,7 +119,9 @@ class LLMAgentBase:
         is_sub_task: bool = False,
     ) -> list[Info]:
         system_prompt, prompt = self.generate_prompt(
-            input_infos, instruction, is_sub_task=is_sub_task,
+            input_infos,
+            instruction,
+            is_sub_task=is_sub_task,
         )
 
         messages = [
@@ -158,12 +155,16 @@ class LLMAgentBase:
         is_sub_task: bool = False,
     ) -> list[Info]:
         return self.query(
-            input_infos, instruction,
-            iteration_idx=iteration_idx, is_sub_task=is_sub_task,
+            input_infos,
+            instruction,
+            iteration_idx=iteration_idx,
+            is_sub_task=is_sub_task,
         )
 
 
-@backoff.on_exception(backoff.expo, (openai.RateLimitError, openai.APITimeoutError), max_tries=5)
+@backoff.on_exception(
+    backoff.expo, (openai.RateLimitError, openai.APITimeoutError), max_tries=5
+)
 def _get_json_response(
     messages: list[dict],
     model: str | None,
@@ -199,7 +200,8 @@ def _get_json_response(
     # Fallback: return empty fields
     logger.warning(
         "LLM failed to produce valid JSON with fields %s after 5 attempts (model=%s)",
-        output_fields, model,
+        output_fields,
+        model,
     )
     return {k: "" for k in output_fields}
 
@@ -242,21 +244,33 @@ class AgentSystem:
 
         if sub_tasks is None and agents is None:
             final = Info(
-                name, author,
+                name,
+                author,
                 f"{thinking.content}\n\nAnswer:{answer_content}",
-                prompt, None, None, iteration_idx,
+                prompt,
+                None,
+                None,
+                iteration_idx,
             )
         elif agents is not None and sub_tasks is None:
             final = Info(
-                name, author,
+                name,
+                author,
                 f"{thinking.content}\n\nAnswer:{answer_content}",
-                prompt, None, "\n".join(agents), iteration_idx,
+                prompt,
+                None,
+                "\n".join(agents),
+                iteration_idx,
             )
         else:
             final = Info(
-                name, author,
+                name,
+                author,
                 f"{thinking.content}\n\nAnswer:{answer_content}",
-                prompt, "\n".join(sub_tasks), "\n".join(agents), iteration_idx,
+                prompt,
+                "\n".join(sub_tasks),
+                "\n".join(agents),
+                iteration_idx,
             )
         return final
 

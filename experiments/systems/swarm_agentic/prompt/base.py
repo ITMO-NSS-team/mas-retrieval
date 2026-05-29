@@ -1,6 +1,6 @@
 """Task description and function description for retrieval QA."""
 
-TASK_MINI = '''Given a question that requires finding and synthesizing information from a document knowledge base, provide a well-reasoned answer supported by evidence from retrieved passages.
+TASK_MINI = """Given a question that requires finding and synthesizing information from a document knowledge base, provide a well-reasoned answer supported by evidence from retrieved passages.
 
 The team has access to the following fixed tool roles:
 - "Document Retriever": Searches the knowledge base and returns candidate passages.
@@ -13,7 +13,7 @@ Workflow guidelines:
 3. Use "Calculator" for any numerical computations.
 4. Reasoning roles analyze the evidence and produce the final answer.
 
-The final answer must be concise and directly address the question.'''
+The final answer must be concise and directly address the question."""
 
 FUNCTION_DESCRIPTION = """
 The function coordinates a team of specialists to answer a question using a document knowledge base.

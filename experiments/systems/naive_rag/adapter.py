@@ -14,9 +14,9 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from marlib.adapters.base import AbstractAdapter, register
+from marlib.retriever.core import Retriever
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
-from marlib.retriever.core import Retriever
 
 load_dotenv()
 

@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 
 from pydantic_ai.models.openai import OpenAIChatModel
 
-from marlib.tracing.tracker import TokenTracker
 from marlib.retriever.core import Document, Retriever
+from marlib.tracing.tracker import TokenTracker
 
 
 @dataclass

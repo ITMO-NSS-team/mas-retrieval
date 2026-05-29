@@ -9,16 +9,17 @@ from typing import TYPE_CHECKING, Any, List
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 
-from .prompt.team_init import init_team
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
 
+from .prompt.team_init import init_team
+
 if TYPE_CHECKING:
-    from marlib.tracing.tracker import TokenTracker
     from marlib.retriever.core import Retriever
+    from marlib.tracing.tracker import TokenTracker
 
 # ── Role prompt ──────────────────────────────────────────────
 
-ROLE_PROMPT = '''You are {name}. You are working in a team solving the following specific task:
+ROLE_PROMPT = """You are {name}. You are working in a team solving the following specific task:
 <task instance>
 {instance}
 </task instance>
@@ -38,7 +39,7 @@ Please follow the instruction step by step to give an answer:
 # Output Guidance
 Your answer only needs to include: {output}
 Think step by step and limit your answer in 400 words.
-'''
+"""
 
 # ── Data classes ─────────────────────────────────────────────
 
@@ -46,6 +47,7 @@ Think step by step and limit your answer in 400 words.
 @dataclass
 class Message:
     """Message object to store role communication content."""
+
     role: str
     subtask: str
     content: str
@@ -155,8 +157,12 @@ class Role:
     ) -> tuple[str, tuple[str, str, str]]:
         prompt = PromptTemplate(
             input_variables=[
-                "name", "responsibility", "policy",
-                "instance", "information", "output",
+                "name",
+                "responsibility",
+                "policy",
+                "instance",
+                "information",
+                "output",
             ],
             template=ROLE_PROMPT,
         )
@@ -189,7 +195,9 @@ class Role:
         return self.description
 
     def __call__(
-        self, inputs: list, output: str,
+        self,
+        inputs: list,
+        output: str,
     ) -> tuple[str, tuple[str, str, str]]:
         task_instance, others_outputs = self.parse_inputs(inputs)
         return self.response(task_instance, others_outputs, output)
@@ -223,11 +231,16 @@ class ToolRole(Role):
         )
 
     def __call__(
-        self, inputs: list, output: str,
+        self,
+        inputs: list,
+        output: str,
     ) -> tuple[str, tuple[str, str, str]]:
         task_instance, others_outputs = self.parse_inputs(inputs)
         result = self.tool_fn(
-            task_instance, others_outputs, self.retriever, self.tracker,
+            task_instance,
+            others_outputs,
+            self.retriever,
+            self.tracker,
         )
         log_entry = (f"Tool - {self.name}", task_instance, result)
         self.message.content = f"\n{result}\n"

@@ -35,9 +35,7 @@ def set_forward(next_solution):
     exec(next_solution, globals(), namespace)  # noqa: S102
     names = list(namespace.keys())
     if len(names) != 1:
-        raise AssertionError(
-            f"{len(names)} things in namespace. Please only provide 1"
-        )
+        raise AssertionError(f"{len(names)} things in namespace. Please only provide 1")
     func = namespace[names[0]]
     if not callable(func):
         raise AssertionError(f"{func} is not callable")

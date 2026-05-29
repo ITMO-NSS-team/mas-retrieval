@@ -9,11 +9,12 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from marlib.adapters.base import AbstractAdapter, register
-from .nodes import CreatePlan, ma_rag_graph
-from .state import MARagDeps, MARagState
+from marlib.retriever.core import Retriever
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
-from marlib.retriever.core import Retriever
+
+from .nodes import CreatePlan, ma_rag_graph
+from .state import MARagDeps, MARagState
 
 
 @register("ma_rag")
@@ -62,7 +63,9 @@ class MARagAdapter(AbstractAdapter):
             state = MARagState(question=question)
 
             result = ma_rag_graph.run_sync(
-                CreatePlan(), state=state, deps=deps,
+                CreatePlan(),
+                state=state,
+                deps=deps,
             )
             answer = result.output
 

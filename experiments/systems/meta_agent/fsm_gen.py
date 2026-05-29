@@ -49,7 +49,10 @@ def generate_agent_description(
     )
 
     agent_generator = LLM(
-        prompt_template, model=model, base_url=base_url, api_key=api_key,
+        prompt_template,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
     )
     agents = agent_generator.chat(
         message=(
@@ -148,7 +151,10 @@ def generate_fsm(
     )
 
     fsm_generator = LLM(
-        prompt_template, model=model, base_url=base_url, api_key=api_key,
+        prompt_template,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
     )
     fsm_response = fsm_generator.chat(
         message=(
@@ -197,7 +203,8 @@ def validate_fsm(fsm: dict, agent_dict: list[dict]) -> bool:
         if state["agent_id"] not in valid_agent_ids:
             logger.warning(
                 "Invalid agent_id %s in state %s",
-                state["agent_id"], state["state_id"],
+                state["agent_id"],
+                state["state_id"],
             )
             return False
 

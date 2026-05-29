@@ -8,7 +8,6 @@ from typing import Any
 
 from automas.meta_agents import GraphGenerator, PoolGenerator
 from automas.pipeline import PipelineBuilder
-
 from marlib.adapters.base import AbstractAdapter, register
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
