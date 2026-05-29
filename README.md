@@ -33,6 +33,8 @@ just prepare hotpotqa
 just prepare financebench
 ```
 
+List what's available with `just available` (discovered benchmarks and systems).
+
 ### Run
 
 Parameters are flags with defaults in `src/marlib/cli.py` (`just run --help`).
