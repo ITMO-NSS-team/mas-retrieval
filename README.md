@@ -15,10 +15,13 @@ Add a system or benchmark by dropping in a folder — no library edits.
 ### Setup
 
 ```bash
-uv sync
+uv sync                                            # harness only
+uv sync --group benchmarks --group swarm_agentic   # + content you actually run
 ```
 
-Set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `GITHUB_TOKEN` in `.env`.
+Content deps are opt-in groups in `pyproject.toml` — one per system plus a
+`benchmarks` group for the builders. `fedotmas`/`automas` install from local
+source. Set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `GITHUB_TOKEN` in `.env`.
 
 ### Prepare a benchmark
 
