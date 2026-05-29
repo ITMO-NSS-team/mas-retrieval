@@ -15,6 +15,8 @@ from pathlib import Path
 from datasets import load_dataset
 from tqdm import tqdm
 
+from marlib.log import logger
+
 # Default output paths per dataset
 DEFAULT_PATHS = {
     "hotpotqa": "experiments/data/corpus/hotpotqa_paragraphs.jsonl",
@@ -45,7 +47,7 @@ def prepare_hotpotqa_corpus(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    print("Loading HotpotQA fullwiki dataset...")
+    logger.info("Loading HotpotQA fullwiki dataset...")
     # Load both train and validation to get maximum paragraph coverage
     train_ds = load_dataset("hotpot_qa", "fullwiki", split="train")
     val_ds = load_dataset("hotpot_qa", "fullwiki", split="validation")
@@ -82,28 +84,28 @@ def prepare_hotpotqa_corpus(
             if max_paragraphs and len(paragraphs) >= max_paragraphs:
                 return
 
-    print("Processing training set contexts...")
+    logger.info("Processing training set contexts...")
     for example in tqdm(train_ds, desc="Train"):
         process_context(example["context"])
         if max_paragraphs and len(paragraphs) >= max_paragraphs:
             break
 
     if not max_paragraphs or len(paragraphs) < max_paragraphs:
-        print("Processing validation set contexts...")
+        logger.info("Processing validation set contexts...")
         for example in tqdm(val_ds, desc="Validation"):
             process_context(example["context"])
             if max_paragraphs and len(paragraphs) >= max_paragraphs:
                 break
 
-    print(f"Collected {len(paragraphs)} unique paragraphs")
+    logger.info(f"Collected {len(paragraphs)} unique paragraphs")
 
     # Save as JSONL
-    print(f"Saving corpus to: {output_path}")
+    logger.info(f"Saving corpus to: {output_path}")
     with open(output_path, "w") as f:
         for para in tqdm(paragraphs, desc="Writing"):
             f.write(json.dumps(para) + "\n")
 
-    print("HotpotQA corpus preparation complete!")
+    logger.success("HotpotQA corpus preparation complete!")
 
 
 def prepare_financebench_corpus(
@@ -135,7 +137,7 @@ def prepare_financebench_corpus(
     # Build metadata mapping from benchmark JSONL: doc_name -> metadata
     metadata_map: dict[str, dict] = {}
     if benchmark_path.exists():
-        print(f"Loading metadata from: {benchmark_path}")
+        logger.info(f"Loading metadata from: {benchmark_path}")
         with open(benchmark_path) as f:
             for line in f:
                 entry = json.loads(line)
@@ -147,15 +149,15 @@ def prepare_financebench_corpus(
                         "doc_period": entry.get("doc_period"),
                         "gics_sector": entry.get("gics_sector"),
                     }
-        print(f"Loaded metadata for {len(metadata_map)} documents")
+        logger.info(f"Loaded metadata for {len(metadata_map)} documents")
 
     # Iterate PDFs and extract text page-by-page
     pdf_files = sorted(pdf_dir.glob("*.pdf"))
     if not pdf_files:
-        print(f"Warning: no PDF files found in {pdf_dir}")
+        logger.warning(f"No PDF files found in {pdf_dir}")
         return
 
-    print(f"Processing {len(pdf_files)} PDFs from: {pdf_dir}")
+    logger.info(f"Processing {len(pdf_files)} PDFs from: {pdf_dir}")
 
     seen_ids: set[str] = set()
     paragraphs = []
@@ -168,11 +170,11 @@ def prepare_financebench_corpus(
         try:
             doc = pymupdf.open(pdf_path)
         except Exception as e:
-            print(f"\n  Warning: could not open {pdf_path.name}: {e}")
+            logger.warning(f"Could not open {pdf_path.name}: {e}")
             continue
 
         if doc.is_encrypted:
-            print(f"\n  Warning: skipping encrypted PDF: {pdf_path.name}")
+            logger.warning(f"Skipping encrypted PDF: {pdf_path.name}")
             skipped_encrypted += 1
             doc.close()
             continue
@@ -218,19 +220,19 @@ def prepare_financebench_corpus(
         if max_paragraphs and len(paragraphs) >= max_paragraphs:
             break
 
-    print(f"Collected {len(paragraphs)} pages from {len(pdf_files)} PDFs")
+    logger.info(f"Collected {len(paragraphs)} pages from {len(pdf_files)} PDFs")
     if skipped_encrypted:
-        print(f"  Skipped {skipped_encrypted} encrypted PDFs")
+        logger.info(f"  Skipped {skipped_encrypted} encrypted PDFs")
     if skipped_empty:
-        print(f"  Skipped {skipped_empty} near-empty pages")
+        logger.info(f"  Skipped {skipped_empty} near-empty pages")
 
     # Save as JSONL
-    print(f"Saving corpus to: {output_path}")
+    logger.info(f"Saving corpus to: {output_path}")
     with open(output_path, "w") as f:
         for para in tqdm(paragraphs, desc="Writing"):
             f.write(json.dumps(para) + "\n")
 
-    print("FinanceBench corpus preparation complete!")
+    logger.success("FinanceBench corpus preparation complete!")
 
 
 def main() -> None:

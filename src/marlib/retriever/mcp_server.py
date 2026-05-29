@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
+from marlib.log import logger
 from marlib.retriever.core import Document, get_retriever
 
 
@@ -94,14 +95,11 @@ if __name__ == "__main__":
     try:
         init_retriever(config)
     except FileNotFoundError:
-        print(
-            "Error: Index or corpus not found. Run data preparation first.",
-            file=sys.stderr,
-        )
-        print("  1. python -m experiments.data.prepare_corpus", file=sys.stderr)
-        print(
-            "  2. python -m experiments.retriever.index_builder --corpus ... --output ...",
-            file=sys.stderr,
+        logger.error("Index or corpus not found. Run data preparation first:")
+        logger.error("  1. python -m experiments.data.prepare_corpus")
+        logger.error(
+            "  2. python -m experiments.retriever.index_builder "
+            "--corpus ... --output ..."
         )
         sys.exit(1)
 

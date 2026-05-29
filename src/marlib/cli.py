@@ -30,6 +30,7 @@ from marlib.experiment import (
     run_system_on_benchmark,
     save_results,
 )
+from marlib.log import logger
 from marlib.logging.schemas import SystemResults
 from marlib.retriever.core import init_retriever
 
@@ -96,12 +97,13 @@ def run(
     out_dir = Path(results_dir) / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print("=" * 60)
-    print(f"Run {run_id}")
-    print(f"  benchmark={benchmark}  model={model}  systems={systems}")
-    if note:
-        print(f"  note: {note}")
-    print("=" * 60)
+    logger.info(
+        f"Starting run {run_id}",
+        benchmark=benchmark,
+        model=model,
+        systems=systems,
+        note=note or None,
+    )
 
     retriever_config = {
         "embedder": embedder,
@@ -112,16 +114,16 @@ def run(
         "collection_name": spec.collection_name,
     }
 
-    print("Initializing retriever...")
+    logger.info("Initializing retriever...")
     retriever = init_retriever(retriever_config)
     retriever.set_collection(spec.collection_name)
-    print(
-        f"  Collection '{spec.collection_name}': "
-        f"{retriever._collection.count()} documents"
+    logger.info(
+        f"Collection '{spec.collection_name}' loaded",
+        documents=retriever._collection.count(),
     )
 
     questions = load_benchmark(benchmark, sample_n=sample_n, data_dir=data_dir)
-    print(f"  Loaded {len(questions)} questions")
+    logger.info(f"Loaded {len(questions)} questions")
     sample_qs = [q.get("question", "") for q in questions[:5]]
 
     adapter_kwargs = {}
@@ -132,7 +134,7 @@ def run(
     summaries: list[dict] = []
 
     for system_name in systems:
-        print(f"\n{'=' * 40}\nSystem: {system_name}\n{'=' * 40}")
+        logger.info(f"Running system: {system_name}")
         adapter = load_adapter(system_name, retriever, model, **adapter_kwargs)
         adapter.set_benchmark_context(benchmark, spec.description, sample_qs)
 
@@ -143,17 +145,17 @@ def run(
             model=model,
         )
 
-        print(f"\n  Results for {system_name}/{benchmark}:")
-        print(f"    EM:  {results.avg_exact_match:.3f}")
-        print(f"    F1:  {results.avg_f1:.3f}")
-        print(f"    ACC: {results.avg_llm_accuracy:.3f}")
-        print(f"    CR:  {results.avg_context_recall:.3f}")
-        print(
-            f"    Tokens/Q: {results.avg_tokens_per_question:.0f}"
-            f" (in: {results.avg_prompt_tokens_per_question:.0f},"
-            f" out: {results.avg_completion_tokens_per_question:.0f})"
+        logger.success(
+            f"Results for {system_name}/{benchmark}",
+            em=round(results.avg_exact_match, 3),
+            f1=round(results.avg_f1, 3),
+            acc=round(results.avg_llm_accuracy, 3),
+            context_recall=round(results.avg_context_recall, 3),
+            tokens_per_q=round(results.avg_tokens_per_question),
+            prompt_tokens_per_q=round(results.avg_prompt_tokens_per_question),
+            completion_tokens_per_q=round(results.avg_completion_tokens_per_question),
+            latency_ms=round(results.avg_latency_ms),
         )
-        print(f"    Latency/Q: {results.avg_latency_ms:.0f}ms")
 
         save_results(results, out_dir)
         all_results.append(results)
@@ -212,8 +214,11 @@ def run(
     with open(Path(results_dir) / "runs.jsonl", "a") as f:
         f.write(json.dumps(index_entry) + "\n")
 
-    print(f"\nResults + provenance saved to: {out_dir}")
-    print(f"History index: {Path(results_dir) / 'runs.jsonl'}")
+    logger.success(
+        "Run complete",
+        results_dir=str(out_dir),
+        history_index=str(Path(results_dir) / "runs.jsonl"),
+    )
 
 
 def main() -> None:

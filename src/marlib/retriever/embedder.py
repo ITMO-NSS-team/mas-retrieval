@@ -6,10 +6,10 @@ Supports dense retrieval mode (1024-dim embeddings).
 
 from __future__ import annotations
 
-import sys
-
 import numpy as np
 import torch
+
+from marlib.log import logger
 
 
 class BGEM3Embedder:
@@ -42,7 +42,7 @@ class BGEM3Embedder:
         self._device = device
 
         # Load model with FlagEmbedding
-        print(f"Loading BGE-M3 embedder on {device}...", file=sys.stderr)
+        logger.info(f"Loading BGE-M3 embedder on {device}...")
         self._model = BGEM3FlagModel(
             model_name,
             use_fp16=use_fp16 and device != "cpu",

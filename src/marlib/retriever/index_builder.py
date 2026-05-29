@@ -20,6 +20,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+from marlib.log import logger
 from marlib.retriever.embedder import BGEM3Embedder
 
 # ChromaDB batch limit (SQLite constraint)
@@ -62,7 +63,7 @@ def build_index(
     chroma_path.mkdir(parents=True, exist_ok=True)
 
     # Initialize ChromaDB client
-    print(f"Initializing ChromaDB at: {chroma_path}")
+    logger.info(f"Initializing ChromaDB at: {chroma_path}")
     client = chromadb.PersistentClient(path=str(chroma_path))
 
     # Create collection with cosine similarity metric
@@ -72,20 +73,20 @@ def build_index(
     )
 
     # Initialize embedder
-    print(f"Loading embedder: {embedder_model}")
+    logger.info(f"Loading embedder: {embedder_model}")
     embedder = BGEM3Embedder(model_name=embedder_model)
 
     # Load corpus from JSONL
-    print(f"Loading corpus from: {corpus_path}")
+    logger.info(f"Loading corpus from: {corpus_path}")
     docs = []
     with open(corpus_path) as f:
         for line in f:
             docs.append(json.loads(line))
 
-    print(f"Corpus size: {len(docs)} documents")
+    logger.info(f"Corpus size: {len(docs)} documents")
 
     # Process in batches for encoding
-    print("Encoding and indexing documents...")
+    logger.info("Encoding and indexing documents...")
     for batch_start in tqdm(range(0, len(docs), batch_size), desc="Processing"):
         batch_end = min(batch_start + batch_size, len(docs))
         batch_docs = docs[batch_start:batch_end]
@@ -96,9 +97,8 @@ def build_index(
         titles = [d["title"] for d in batch_docs]
 
         # Encode batch
-        print(f"  Encoding batch {batch_start}-{batch_end}...", end=" ", flush=True)
+        logger.debug(f"Encoding batch {batch_start}-{batch_end}")
         embeddings = embedder.encode_documents(texts, batch_size=batch_size)
-        print("done.", flush=True)
 
         # Ensure float32
         if embeddings.dtype != np.float32:
@@ -114,14 +114,13 @@ def build_index(
             metadatas.append(meta)
 
         # Add to ChromaDB collection
-        print("  Adding to ChromaDB...", end=" ", flush=True)
+        logger.debug("Adding batch to ChromaDB")
         collection.add(
             ids=doc_ids,
             documents=texts,
             metadatas=metadatas,
             embeddings=embeddings.tolist(),
         )
-        print("done.", flush=True)
 
         # Free memory
         del embeddings, texts, doc_ids, titles, metadatas, batch_docs
@@ -131,7 +130,7 @@ def build_index(
         elif torch.backends.mps.is_available():
             torch.mps.empty_cache()
 
-    print(f"Collection size: {collection.count()} documents")
+    logger.info(f"Collection size: {collection.count()} documents")
 
 
 def main() -> None:

@@ -23,6 +23,7 @@ from marlib.adapters.base import AbstractAdapter
 from marlib.adapters.fedotmas import FedotMASAdapter
 from marlib.evaluation.llm_judge import llm_accuracy
 from marlib.evaluation.metrics import evaluate_question
+from marlib.log import logger
 from marlib.logging.schemas import QuestionLog, SystemResults
 from marlib.retriever.core import Retriever
 
@@ -239,7 +240,7 @@ def run_system_on_benchmark(
                     model_name=model,
                 )
             except Exception as e:
-                print(f"  LLM judge failed for {question_id}: {e}")
+                logger.warning(f"LLM judge failed for {question_id}: {e}")
                 log.llm_accuracy = None
 
             question_logs.append(log)
@@ -249,7 +250,7 @@ def run_system_on_benchmark(
 
         except Exception as e:
             q_id = q.get("id", "unknown") if isinstance(q, dict) else "unknown"
-            print(f"  FAILED question {q_id}: {e}")
+            logger.error(f"FAILED question {q_id}: {e}")
             error_log = QuestionLog(
                 question_id=q_id,
                 question=q.get("question", "") if isinstance(q, dict) else "",
@@ -326,4 +327,4 @@ def save_results(
     with open(filepath, "w") as f:
         json.dump(results.model_dump(), f, indent=2)
 
-    print(f"Saved results to: {filepath}")
+    logger.info(f"Saved results to: {filepath}")

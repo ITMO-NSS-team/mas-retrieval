@@ -28,6 +28,7 @@ from marlib.adapters.mas_zero.core import (
 from marlib.adapters.mas_zero.prompts import SYSTEM_PROMPT, build_meta_prompt
 from marlib.adapters.mas_zero.tracing import AgentTrace, MASZeroTrace
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
+from marlib.log import logger
 from marlib.logging.schemas import QuestionLog
 from marlib.logging.tracker import TokenTracker
 from marlib.retriever.core import Document, Retriever
@@ -347,7 +348,7 @@ class MASZeroAdapter(AbstractAdapter):
                     f"System '{self._cached_system.get('name', '?')}' has no 'code' field"
                 )
 
-            print(self._format_system_description(self._cached_system))
+            logger.info(self._format_system_description(self._cached_system))
 
             # Point B: Capture architecture details
             if trace is not None:

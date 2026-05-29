@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import logging
 import os
 import re
 from typing import Any
@@ -12,11 +11,10 @@ from marlib.adapters.base import AbstractAdapter
 from marlib.adapters.meta_agent.fsm_gen import generate_mas
 from marlib.adapters.meta_agent.multi_agent import MultiAgentSystem
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
+from marlib.log import logger
 from marlib.logging.schemas import QuestionLog
 from marlib.logging.tracker import TokenTracker
 from marlib.retriever.core import Document, Retriever
-
-logger = logging.getLogger(__name__)
 
 _TASK_DESCRIPTION = (
     "Answer questions by retrieving relevant documents, optionally reranking "
@@ -66,7 +64,7 @@ class MetaAgentAdapter(AbstractAdapter):
         api_key = os.environ.get("OPENAI_API_KEY")
 
         task = self._build_task_description()
-        logger.info("Generating MetaAgent team for model=%s", self._model)
+        logger.info(f"Generating MetaAgent team for model={self._model}")
         agents_json, states_json = generate_mas(
             task=task,
             model=self._model,
@@ -77,9 +75,8 @@ class MetaAgentAdapter(AbstractAdapter):
         self._states_json = states_json
         self._initialized = True
         logger.info(
-            "MetaAgent team ready: %d agents, %d states",
-            len(agents_json),
-            len(states_json["states"]),
+            f"MetaAgent team ready: {len(agents_json)} agents, "
+            f"{len(states_json['states'])} states"
         )
 
     _FSM_NOISE_RE = re.compile(
@@ -230,7 +227,7 @@ class MetaAgentAdapter(AbstractAdapter):
         self._init_team()
         assert self._agents_json is not None
         assert self._states_json is not None
-        print(self.describe_system())
+        logger.info(self.describe_system())
 
         tracker = TokenTracker(
             question_id=question_id,

@@ -6,10 +6,11 @@ through the FlagEmbedding library.
 
 from __future__ import annotations
 
-import sys
 from typing import TYPE_CHECKING
 
 import torch
+
+from marlib.log import logger
 
 if TYPE_CHECKING:
     from marlib.retriever.core import Document
@@ -37,7 +38,7 @@ class BGEReranker:
                 device = "cpu"
         self._device = device
 
-        print(f"Loading BGE reranker on {device}...", file=sys.stderr)
+        logger.info(f"Loading BGE reranker on {device}...")
         self._model = FlagReranker(
             model_name,
             use_fp16=use_fp16 and device != "cpu",

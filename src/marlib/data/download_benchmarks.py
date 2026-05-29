@@ -17,6 +17,8 @@ from pathlib import Path
 from datasets import load_dataset
 from tqdm import tqdm
 
+from marlib.log import logger
+
 
 def download_hotpotqa(
     output_dir: str | Path,
@@ -33,15 +35,15 @@ def download_hotpotqa(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Loading HotpotQA fullwiki validation set...")
+    logger.info("Loading HotpotQA fullwiki validation set...")
     ds = load_dataset("hotpot_qa", "fullwiki", split="validation")
 
     # Separate by type (bridge vs comparison)
     bridge_questions = [ex for ex in ds if ex["type"] == "bridge"]
     comparison_questions = [ex for ex in ds if ex["type"] == "comparison"]
 
-    print(f"Total questions: {len(ds)}")
-    print(f"Bridge: {len(bridge_questions)}, Comparison: {len(comparison_questions)}")
+    logger.info(f"Total questions: {len(ds)}")
+    logger.info(f"Bridge: {len(bridge_questions)}, Comparison: {len(comparison_questions)}")
 
     # Stratified sampling: 250 each
     import random
@@ -78,12 +80,12 @@ def download_hotpotqa(
 
     # Save
     output_file = output_dir / "hotpotqa_sample.jsonl"
-    print(f"Saving {len(processed)} questions to: {output_file}")
+    logger.info(f"Saving {len(processed)} questions to: {output_file}")
     with open(output_file, "w") as f:
         for item in processed:
             f.write(json.dumps(item) + "\n")
 
-    print("HotpotQA download complete!")
+    logger.success("HotpotQA download complete!")
 
 
 def download_financebench(output_dir: str | Path) -> None:
@@ -98,10 +100,10 @@ def download_financebench(output_dir: str | Path) -> None:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Loading FinanceBench dataset...")
+    logger.info("Loading FinanceBench dataset...")
     ds = load_dataset("PatronusAI/financebench", split="train")
 
-    print(f"Total examples: {len(ds)}")
+    logger.info(f"Total examples: {len(ds)}")
 
     # Convert to standard format
     processed = []
@@ -125,12 +127,12 @@ def download_financebench(output_dir: str | Path) -> None:
 
     # Save
     output_file = output_dir / "financebench_sample.jsonl"
-    print(f"Saving {len(processed)} questions to: {output_file}")
+    logger.info(f"Saving {len(processed)} questions to: {output_file}")
     with open(output_file, "w") as f:
         for item in processed:
             f.write(json.dumps(item) + "\n")
 
-    print("FinanceBench download complete!")
+    logger.success("FinanceBench download complete!")
 
 
 def download_financebench_pdfs(
@@ -152,7 +154,7 @@ def download_financebench_pdfs(
     benchmark_path = Path(benchmark_path)
 
     # Read benchmark to get unique doc_name values
-    print(f"Loading benchmark from: {benchmark_path}")
+    logger.info(f"Loading benchmark from: {benchmark_path}")
     doc_names: set[str] = set()
     with open(benchmark_path) as f:
         for line in f:
@@ -161,7 +163,7 @@ def download_financebench_pdfs(
             if doc_name:
                 doc_names.add(doc_name)
 
-    print(f"Found {len(doc_names)} unique documents to download")
+    logger.info(f"Found {len(doc_names)} unique documents to download")
 
     base_url = "https://raw.githubusercontent.com/patronus-ai/financebench/main/pdfs"
 
@@ -190,10 +192,12 @@ def download_financebench_pdfs(
                 pdf_path.write_bytes(resp.read())
             downloaded += 1
         except Exception as e:
-            print(f"\n  Warning: failed to download {doc_name}: {e}")
+            logger.warning(f"Failed to download {doc_name}: {e}")
             failed += 1
 
-    print(f"\nDone: {downloaded} downloaded, {skipped} skipped, {failed} failed")
+    logger.success(
+        f"Done: {downloaded} downloaded, {skipped} skipped, {failed} failed"
+    )
 
 
 def main() -> None:
