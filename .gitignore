@@ -9,14 +9,15 @@ wheels/
 # Virtual environments
 .venv
 
-# experiments/ holds generated/downloaded data and is not tracked, EXCEPT the
-# per-benchmark manifest.toml files, which define each benchmark.
+# experiments/ holds content (systems + benchmarks). Adapter code under
+# systems/ is tracked in full; benchmark dirs track only the committed recipe
+# (manifest.toml + builder.py), while generated/downloaded data is ignored.
 /experiments/*
-!/experiments/data
-/experiments/data/*
-!/experiments/data/benchmarks
-/experiments/data/benchmarks/*/*
-!/experiments/data/benchmarks/*/manifest.toml
+!/experiments/benchmarks
+!/experiments/systems
+/experiments/benchmarks/*/*
+!/experiments/benchmarks/*/manifest.toml
+!/experiments/benchmarks/*/builder.py
 
 uv.lock
 results/

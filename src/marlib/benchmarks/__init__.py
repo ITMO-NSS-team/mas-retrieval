@@ -1,9 +1,10 @@
-"""Benchmark repository: directory-discovered specs + auto-registered builders.
+"""Benchmark framework (harness).
 
-Importing this package registers all built-in benchmark builders (one module
-per benchmark). The set of *available* benchmarks is discovered from the data
-directory (``discover``), while *how to build* each is looked up in the builder
-registry (``get_builder``) — both keyed by the same name.
+This package provides the benchmark *contract*, *spec*, *registry* and shared
+indexing only. The concrete benchmarks (recipe + data) live OUTSIDE the library,
+under ``experiments/benchmarks/<name>/`` (``manifest.toml`` + ``builder.py`` +
+generated data). ``discover(root)`` reads the manifests into specs and imports
+each external ``builder.py`` so its ``@register`` fires.
 """
 
 from __future__ import annotations
@@ -19,9 +20,6 @@ from marlib.benchmarks.base import (
     registered_builders,
     slugify,
 )
-
-# Importing the builder modules triggers their @register side effects.
-from marlib.benchmarks import financebench, hotpotqa  # noqa: E402,F401
 
 __all__ = [
     "DEFAULT_ROOT",

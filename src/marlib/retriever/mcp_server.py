@@ -1,107 +1,104 @@
-"""FastMCP wrapper for the retrieval API.
+"""Harness MCP server exposing retrieval + calculator tools over stdio.
 
-Used exclusively by AutoMAS, which discovers tools via MCP.
-Other systems use the Python retriever functions directly.
+Spawned as a subprocess by adapters whose frameworks discover tools via MCP
+(e.g. FedotMAS, AutoMAS):  ``python -m marlib.retriever.mcp_server``.
+
+The subprocess builds its own Retriever from ``RETCAP_*`` environment variables
+(set by the spawning adapter) and appends retrieved doc_ids to
+``RETCAP_DOCIDS_FILE`` so the parent can compute context_recall.
+
+This is harness infrastructure (it exposes the shared retriever), not tied to
+any single system.
 """
 
 from __future__ import annotations
 
+import json
+import os
+
 from fastmcp import FastMCP
 
-from marlib.log import logger
-from marlib.retriever.core import Document, get_retriever
+from marlib.adapters.tools import safe_eval
+from marlib.retriever.core import Retriever
+
+mcp = FastMCP("retrieval")
+
+_retriever: Retriever | None = None
 
 
-def format_results(docs: list[Document]) -> str:
-    """Format documents into a readable string.
+def _get_retriever() -> Retriever:
+    """Lazily build the retriever from RETCAP_* env vars (set by the adapter)."""
+    global _retriever
+    if _retriever is None:
+        config = {
+            "embedder": os.environ.get("RETCAP_EMBEDDER", "BAAI/bge-m3"),
+            "reranker": os.environ.get("RETCAP_RERANKER", "BAAI/bge-reranker-v2-m3"),
+            "index_path": os.environ.get(
+                "RETCAP_INDEX_PATH", "experiments/benchmarks"
+            ),
+            "collection_name": os.environ.get("RETCAP_COLLECTION", "financebench"),
+        }
+        _retriever = Retriever(config)
+    return _retriever
+
+
+def _log_doc_ids(tool_name: str, query: str, doc_ids: list[str]) -> None:
+    """Append doc_ids to the tracking file for the context_recall metric."""
+    path = os.environ.get("RETCAP_DOCIDS_FILE")
+    if not path:
+        return
+    with open(path, "a") as f:
+        f.write(
+            json.dumps({"tool": tool_name, "query": query, "doc_ids": doc_ids}) + "\n"
+        )
+
+
+@mcp.tool()
+def retrieval_search(query: str, top_k: int = 10, use_rerank: bool = True) -> str:
+    """Search the document knowledge base for relevant passages.
+
+    Use to find information, evidence, and facts from the corpus.
 
     Args:
-        docs: List of Document objects.
+        query: Natural language search query.
+        top_k: Number of passages to return (default 10, max 20).
+        use_rerank: Apply neural reranking for better relevance (default True).
 
     Returns:
-        Formatted string with titles, scores, and text.
+        Formatted ranked passages with titles and scores.
     """
+    top_k = min(top_k, 20)
+    retriever = _get_retriever()
+    docs = retriever.search(query, top_k=top_k, use_rerank=use_rerank)
+    doc_ids = [doc.doc_id for doc in docs]
+    _log_doc_ids("retrieve", query, doc_ids)
+
     if not docs:
         return "No results found."
-
     parts = []
     for i, doc in enumerate(docs, 1):
         parts.append(f"[{i}] {doc.title} (score: {doc.score:.3f})\n{doc.text}")
-
     return "\n\n".join(parts)
 
 
-def create_retrieval_mcp_server() -> FastMCP:
-    """Create a FastMCP server exposing retrieval tools.
+@mcp.tool()
+def calculate(expression: str) -> str:
+    """Evaluate a mathematical expression safely.
 
-    Tools exposed:
-        - retrieval_search(query, top_k, use_rerank) -> list of passages
+    Supports: +, -, *, /, **, %, round(), abs(), min(), max(), pi, e.
+
+    Args:
+        expression: Math expression to evaluate (e.g. "revenue / shares", "round(456.78 / 123, 2)").
 
     Returns:
-        A FastMCP server instance ready to be registered in
-        AutoMAS's MCP registry.
-
-    Integration point:
-        Register in automas/src/automas/mcp/registry.py
-        alongside existing MCP servers.
+        Result string like "expression = value".
     """
-    mcp = FastMCP("retrieval")
-
-    @mcp.tool()
-    def retrieval_search(
-        query: str,
-        top_k: int = 10,
-        use_rerank: bool = True,
-    ) -> str:
-        """Search the Wikipedia knowledge base for relevant passages.
-
-        Use this tool to find information about topics, entities, events,
-        or facts. The knowledge base contains Wikipedia paragraphs that
-        can help answer questions.
-
-        Args:
-            query: Natural language search query describing what you're looking for.
-            top_k: Number of passages to return (default 10, max 20).
-            use_rerank: Whether to apply neural reranking for better relevance (default True).
-
-        Returns:
-            Formatted string of ranked passages with titles and relevance scores.
-        """
-        top_k = min(top_k, 20)  # Cap at 20 results
-
-        retriever = get_retriever()
-        docs = retriever.search(query, top_k=top_k, use_rerank=use_rerank)
-
-        return format_results(docs)
-
-    return mcp
-
-
-# For direct execution as MCP server
-if __name__ == "__main__":
-    import sys
-
-    from marlib.retriever.core import init_retriever
-
-    # Initialize retriever (requires config)
-    # In practice, this would be loaded from config.yaml
-    config = {
-        "embedder": "BAAI/bge-m3",
-        "reranker": "BAAI/bge-reranker-v2-m3",
-        "index_path": "experiments/data/index/",
-        "corpus_path": "experiments/data/corpus/wiki_paragraphs.jsonl",
-    }
-
     try:
-        init_retriever(config)
-    except FileNotFoundError:
-        logger.error("Index or corpus not found. Run data preparation first:")
-        logger.error("  1. python -m experiments.data.prepare_corpus")
-        logger.error(
-            "  2. python -m experiments.retriever.index_builder "
-            "--corpus ... --output ..."
-        )
-        sys.exit(1)
+        result = safe_eval(expression)
+        return f"{expression} = {result}"
+    except Exception as e:
+        return f"Error evaluating '{expression}': {e}"
 
-    mcp = create_retrieval_mcp_server()
-    mcp.run()
+
+if __name__ == "__main__":
+    mcp.run(show_banner=False)

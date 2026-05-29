@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 
 from marlib.benchmarks import build_index, discover, load_spec
+from marlib.log import logger
 
 
 def main() -> None:
@@ -24,7 +25,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--data-dir",
-        default="experiments/data/benchmarks",
+        default="experiments/benchmarks",
         help="Benchmark repository root (one subdir per benchmark).",
     )
     parser.add_argument(
@@ -38,6 +39,9 @@ def main() -> None:
         default=32,
         help="Encoding batch size (BGE-M3 uses ~3-4GB VRAM, safe for 16GB GPUs).",
     )
+    parser.add_argument(
+        "--force", action="store_true", help="Re-index even if an index already exists."
+    )
     args = parser.parse_args()
 
     names = (
@@ -45,6 +49,9 @@ def main() -> None:
     )
     for name in names:
         spec = load_spec(name, args.data_dir)
+        if (spec.index_path / spec.collection / "chroma.sqlite3").exists() and not args.force:
+            logger.info(f"skip index: {name} (index already exists)")
+            continue
         build_index(spec, embedder_model=args.model, batch_size=args.batch_size)
 
 

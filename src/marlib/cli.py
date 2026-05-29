@@ -22,7 +22,7 @@ from uuid import uuid4
 
 import typer
 
-from marlib.adapters import available_adapters
+from marlib.adapters import discover_adapters
 from marlib.benchmarks import discover, load_spec
 from marlib.experiment import (
     load_adapter,
@@ -34,9 +34,9 @@ from marlib.log import logger
 from marlib.tracing.schemas import SystemResults
 from marlib.retriever.core import init_retriever
 
-# Discovered at import — used only for --help text.
+# Discovered from the default content roots at import — used only for --help text.
 _AVAILABLE = list(discover())
-_SYSTEMS = available_adapters()
+_SYSTEMS = discover_adapters()
 
 
 def _git_sha() -> str | None:
@@ -74,8 +74,12 @@ def run(
     embedder: str = typer.Option("BAAI/bge-m3", help="Embedder model name."),
     reranker: str = typer.Option("BAAI/bge-reranker-v2-m3", help="Reranker model name."),
     data_dir: Path = typer.Option(
-        Path("experiments/data/benchmarks"),
+        Path("experiments/benchmarks"),
         help="Benchmark repository root (one subdir per benchmark).",
+    ),
+    systems_dir: Path = typer.Option(
+        Path("experiments/systems"),
+        help="Systems (adapters) repository root (one subdir per system).",
     ),
     results_dir: Path = typer.Option(Path("results"), help="Output root dir."),
     seed: int = typer.Option(42, help="Random seed (recorded in provenance)."),
@@ -86,7 +90,7 @@ def run(
         spec = load_spec(benchmark, data_dir)
     except ValueError as e:
         raise typer.BadParameter(str(e))
-    available = available_adapters()
+    available = discover_adapters(systems_dir)
     unknown = [s for s in systems if s not in available]
     if unknown:
         raise typer.BadParameter(
@@ -187,6 +191,7 @@ def run(
         "reranker": reranker,
         "index_path": str(spec.index_path),
         "data_dir": str(data_dir),
+        "systems_dir": str(systems_dir),
         "seed": seed,
     }
     run_meta = {

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 
 from marlib.benchmarks import discover, get_builder, load_spec
+from marlib.log import logger
 
 
 def main() -> None:
@@ -24,7 +25,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--data-dir",
-        default="experiments/data/benchmarks",
+        default="experiments/benchmarks",
         help="Benchmark repository root (one subdir per benchmark).",
     )
     parser.add_argument(
@@ -33,6 +34,9 @@ def main() -> None:
         default=None,
         help="Optional cap on corpus size (for testing).",
     )
+    parser.add_argument(
+        "--force", action="store_true", help="Rebuild even if corpus.jsonl exists."
+    )
     args = parser.parse_args()
 
     names = (
@@ -40,6 +44,9 @@ def main() -> None:
     )
     for name in names:
         spec = load_spec(name, args.data_dir)
+        if spec.corpus_path.exists() and not args.force:
+            logger.info(f"skip corpus: {name} (corpus.jsonl exists)")
+            continue
         get_builder(name).build_corpus(spec, max_paragraphs=args.max_paragraphs)
 
 

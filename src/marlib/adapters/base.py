@@ -6,9 +6,14 @@ and provides a uniform interface for question execution.
 
 from __future__ import annotations
 
+import importlib
+import sys
+import types
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
 
+from marlib.log import logger
 from marlib.tracing.schemas import QuestionLog
 from marlib.retriever.core import Retriever
 
@@ -141,3 +146,46 @@ def get_adapter_class(name: str) -> type[AbstractAdapter]:
             f"Unknown system '{name}'. Available: {available_adapters()}"
         )
     return _ADAPTERS[name]
+
+
+# --- Path-based discovery -----------------------------------------------------
+# Adapters live OUTSIDE this package (they are experiment content, not harness).
+# discover_adapters() imports each system package from an external directory via
+# a synthetic namespace package, so the systems' relative imports resolve and
+# their @register side effects fire. The synthetic prefix avoids clashing with
+# the frameworks the adapters wrap (e.g. installed `fedotmas` / `automas`).
+
+DEFAULT_SYSTEMS_ROOT = Path("experiments/systems")
+_SYSTEMS_NS = "_marlib_systems"
+
+
+def _ensure_namespace(parent: str, search_dir: Path) -> None:
+    """Register/refresh a synthetic namespace package rooted at ``search_dir``."""
+    mod = sys.modules.get(parent)
+    if mod is None:
+        mod = types.ModuleType(parent)
+        sys.modules[parent] = mod
+    mod.__path__ = [str(search_dir)]  # type: ignore[attr-defined]
+
+
+def discover_adapters(root: str | Path = DEFAULT_SYSTEMS_ROOT) -> list[str]:
+    """Import external adapter packages from ``root``, registering what loads.
+
+    Each ``<root>/<name>/`` package is imported defensively: a system whose
+    (heavy / optional) dependencies are missing is skipped, not crashed on.
+    Idempotent. Returns the names available after discovery.
+    """
+    root = Path(root)
+    if not root.is_dir():
+        return available_adapters()
+    _ensure_namespace(_SYSTEMS_NS, root)
+    for entry in sorted(root.iterdir()):
+        if not entry.is_dir() or entry.name.startswith((".", "_")):
+            continue
+        if not (entry / "__init__.py").exists():
+            continue
+        try:
+            importlib.import_module(f"{_SYSTEMS_NS}.{entry.name}")
+        except Exception as e:  # missing optional deps, import-time errors, etc.
+            logger.debug(f"Adapter '{entry.name}' unavailable: {e!r}")
+    return available_adapters()

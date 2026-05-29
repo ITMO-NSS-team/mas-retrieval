@@ -13,7 +13,6 @@ import operator
 
 from marlib.retriever.core import Document, Retriever
 
-
 # ── Document formatter ───────────────────────────────────────
 
 
@@ -31,7 +30,9 @@ def format_docs(docs: list[Document]) -> str:
 
 
 def do_retrieve(
-    retriever: Retriever, query: str, top_k: int = 20,
+    retriever: Retriever,
+    query: str,
+    top_k: int = 20,
 ) -> tuple[list[Document], str]:
     """Dense retrieval via ChromaDB. Returns (docs, formatted_string)."""
     docs = retriever.retrieve(query, top_k=top_k)
@@ -75,9 +76,7 @@ def _eval_node(node: ast.AST) -> float:
     if isinstance(node, ast.Name) and node.id in _SAFE_CONSTS:
         return _SAFE_CONSTS[node.id]
     if isinstance(node, ast.BinOp) and type(node.op) in _SAFE_OPS:
-        return _SAFE_OPS[type(node.op)](
-            _eval_node(node.left), _eval_node(node.right)
-        )
+        return _SAFE_OPS[type(node.op)](_eval_node(node.left), _eval_node(node.right))
     if isinstance(node, ast.UnaryOp) and type(node.op) in _SAFE_OPS:
         return _SAFE_OPS[type(node.op)](_eval_node(node.operand))
     if (
