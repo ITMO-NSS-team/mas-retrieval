@@ -11,7 +11,7 @@ Set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `GITHUB_TOKEN` in `.env`.
 ### Run
 
 Experiments are launched with `just run` (cross-platform). All parameters are
-flags with defaults in `src/retcapslib/cli.py`; see them with `just run --help`.
+flags with defaults in `src/marlib/cli.py`; see them with `just run --help`.
 
 ```bash
 just run --benchmark financebench --sample-n 10

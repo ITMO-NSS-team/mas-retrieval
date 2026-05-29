@@ -33,10 +33,10 @@ index-financebench:
 # e.g.  just run --benchmark hotpotqa --systems fedotmas --sample-n 50 --note "..."
 #
 # --no-sync: do not let uv prune the environment (some packages are installed
-# out-of-band). `python -m retcapslib.cli` avoids needing the console script
+# out-of-band). `python -m marlib.cli` avoids needing the console script
 # reinstalled and works on Linux/macOS/Windows.
 run *ARGS:
-    uv run --no-sync python -m retcapslib.cli {{ARGS}}
+    uv run --no-sync python -m marlib.cli {{ARGS}}
 
 test-hotpot:
     just run --benchmark hotpotqa

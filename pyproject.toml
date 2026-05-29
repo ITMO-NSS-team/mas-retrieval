@@ -3,7 +3,7 @@ requires = ["uv_build>=0.9.30,<0.10.0"]
 build-backend = "uv_build"
 
 [project]
-name = "retcapslib"
+name = "marlib"
 version = "0.1.0"
 description = "Evaluating Auto-Generated Multi-Agent Systems on QA Tasks"
 readme = "README.md"
@@ -32,10 +32,10 @@ dependencies = [
 ]
 
 [project.scripts]
-download-benchmarks = "retcapslib.data.download_benchmarks:main"
-prepare-corpus = "retcapslib.data.prepare_corpus:main"
-build-index = "retcapslib.retriever.index_builder:main"
-bench = "retcapslib.cli:main"
+download-benchmarks = "marlib.data.download_benchmarks:main"
+prepare-corpus = "marlib.data.prepare_corpus:main"
+build-index = "marlib.retriever.index_builder:main"
+bench = "marlib.cli:main"
 
 [dependency-groups]
 swarm = [
