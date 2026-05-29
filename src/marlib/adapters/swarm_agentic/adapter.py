@@ -11,8 +11,8 @@ from marlib.adapters.base import AbstractAdapter
 from marlib.adapters.swarm_agentic.func import get_forward, set_forward
 from marlib.adapters.swarm_agentic.logger import setup_logger
 from marlib.adapters.swarm_agentic.role import Team
-from marlib.logging.schemas import QuestionLog
-from marlib.logging.tracker import TokenTracker
+from marlib.tracing.schemas import QuestionLog
+from marlib.tracing.tracker import TokenTracker
 from marlib.retriever.core import Retriever
 
 

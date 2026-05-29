@@ -1,4 +1,4 @@
-## Zero-Shot Multi-Agent Generation for Specialized RAG Workflows: An Empirical Evaluation
+## Evaluating Auto-Generated Multi-Agent Systems on QA & RAG Tasks
 
 ### Setup
 

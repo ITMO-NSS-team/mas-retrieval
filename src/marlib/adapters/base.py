@@ -9,7 +9,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from marlib.logging.schemas import QuestionLog
+from marlib.tracing.schemas import QuestionLog
 from marlib.retriever.core import Retriever
 
 

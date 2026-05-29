@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "marlib"
 version = "0.1.0"
-description = "Evaluating Auto-Generated Multi-Agent Systems on QA Tasks"
+description = "Evaluating Auto-Generated Multi-Agent Systems on QA & RAG Tasks"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

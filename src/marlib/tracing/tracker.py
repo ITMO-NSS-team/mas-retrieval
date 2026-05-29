@@ -6,7 +6,7 @@ import time
 from contextlib import contextmanager
 from typing import Any, Generator
 
-from marlib.logging.schemas import LLMCall, QuestionLog, ToolCall
+from marlib.tracing.schemas import LLMCall, QuestionLog, ToolCall
 
 
 class TokenTracker:

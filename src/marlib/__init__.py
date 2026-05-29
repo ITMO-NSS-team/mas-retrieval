@@ -1,1 +1,1 @@
-"""Evaluating Auto-Generated Multi-Agent Systems on QA Tasks."""
+"""Evaluating Auto-Generated Multi-Agent Systems on QA & RAG Tasks"""

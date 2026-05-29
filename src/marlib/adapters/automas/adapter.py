@@ -10,8 +10,8 @@ from automas.meta_agents import GraphGenerator, PoolGenerator
 from automas.pipeline import PipelineBuilder
 
 from marlib.adapters.base import AbstractAdapter
-from marlib.logging.schemas import QuestionLog
-from marlib.logging.tracker import TokenTracker
+from marlib.tracing.schemas import QuestionLog
+from marlib.tracing.tracker import TokenTracker
 
 
 class AutoMASAdapter(AbstractAdapter):

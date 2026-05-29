@@ -13,7 +13,7 @@ from marlib.adapters.swarm_agentic.prompt.team_init import init_team
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
 
 if TYPE_CHECKING:
-    from marlib.logging.tracker import TokenTracker
+    from marlib.tracing.tracker import TokenTracker
     from marlib.retriever.core import Retriever
 
 # ── Role prompt ──────────────────────────────────────────────

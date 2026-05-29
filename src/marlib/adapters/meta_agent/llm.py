@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from openai import OpenAI
 
 if TYPE_CHECKING:
-    from marlib.logging.tracker import TokenTracker
+    from marlib.tracing.tracker import TokenTracker
 
 
 class LLM:

@@ -12,8 +12,8 @@ from marlib.adapters.meta_agent.fsm_gen import generate_mas
 from marlib.adapters.meta_agent.multi_agent import MultiAgentSystem
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
 from marlib.log import logger
-from marlib.logging.schemas import QuestionLog
-from marlib.logging.tracker import TokenTracker
+from marlib.tracing.schemas import QuestionLog
+from marlib.tracing.tracker import TokenTracker
 from marlib.retriever.core import Document, Retriever
 
 _TASK_DESCRIPTION = (

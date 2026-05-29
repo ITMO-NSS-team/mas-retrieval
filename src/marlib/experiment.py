@@ -24,8 +24,8 @@ from marlib.adapters.fedotmas import FedotMASAdapter
 from marlib.evaluation.llm_judge import llm_accuracy
 from marlib.evaluation.metrics import evaluate_question
 from marlib.log import logger
-from marlib.logging.schemas import QuestionLog, SystemResults
 from marlib.retriever.core import Retriever
+from marlib.tracing.schemas import QuestionLog, SystemResults
 
 
 def _slugify(text: str) -> str:
@@ -99,8 +99,7 @@ def load_benchmark(
     """
     if benchmark_name not in BENCHMARKS:
         raise ValueError(
-            f"Unknown benchmark: {benchmark_name}. "
-            f"Available: {list(BENCHMARKS.keys())}"
+            f"Unknown benchmark: {benchmark_name}. Available: {list(BENCHMARKS.keys())}"
         )
 
     filepath = Path(data_dir) / BENCHMARKS[benchmark_name].file

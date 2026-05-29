@@ -1,4 +1,4 @@
-"""Pydantic models for structured experiment logging.
+"""Pydantic models for structured experiment tracing.
 
 Defines schemas for tool calls, LLM calls, and question-level logs.
 """

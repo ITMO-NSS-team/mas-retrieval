@@ -11,8 +11,8 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from marlib.adapters.base import AbstractAdapter
 from marlib.adapters.ma_rag.nodes import CreatePlan, ma_rag_graph
 from marlib.adapters.ma_rag.state import MARagDeps, MARagState
-from marlib.logging.schemas import QuestionLog
-from marlib.logging.tracker import TokenTracker
+from marlib.tracing.schemas import QuestionLog
+from marlib.tracing.tracker import TokenTracker
 from marlib.retriever.core import Retriever
 
 

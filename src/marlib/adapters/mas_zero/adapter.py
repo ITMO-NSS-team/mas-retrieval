@@ -29,8 +29,8 @@ from marlib.adapters.mas_zero.prompts import SYSTEM_PROMPT, build_meta_prompt
 from marlib.adapters.mas_zero.tracing import AgentTrace, MASZeroTrace
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
 from marlib.log import logger
-from marlib.logging.schemas import QuestionLog
-from marlib.logging.tracker import TokenTracker
+from marlib.tracing.schemas import QuestionLog
+from marlib.tracing.tracker import TokenTracker
 from marlib.retriever.core import Document, Retriever
 
 logger = logging.getLogger(__name__)

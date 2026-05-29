@@ -31,7 +31,7 @@ from marlib.experiment import (
     save_results,
 )
 from marlib.log import logger
-from marlib.logging.schemas import SystemResults
+from marlib.tracing.schemas import SystemResults
 from marlib.retriever.core import init_retriever
 
 

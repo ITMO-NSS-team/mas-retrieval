@@ -11,8 +11,8 @@ from fedotmas import MAS, PipelineConfig
 from fedotmas.mcp.registry import MCPServerConfig, StdioMCPServer
 
 from marlib.adapters.base import AbstractAdapter
-from marlib.logging.schemas import QuestionLog
-from marlib.logging.tracker import TokenTracker
+from marlib.tracing.schemas import QuestionLog
+from marlib.tracing.tracker import TokenTracker
 
 
 class FedotMASAdapter(AbstractAdapter):
