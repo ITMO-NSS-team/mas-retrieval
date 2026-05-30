@@ -1,0 +1,9 @@
+name = "bioasq"
+collection = "bioasq"
+metrics = ["exact_match", "f1", "context_recall", "llm_accuracy"]
+description = """
+Biomedical question answering over PubMed/MEDLINE abstracts (BioASQ Task B). \
+Questions require retrieving relevant biomedical literature and extracting a \
+precise answer — a named entity/concept (factoid) or a set of entities (list). \
+Gold relevance is given as PubMed document IDs.
+"""

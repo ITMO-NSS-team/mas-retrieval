@@ -36,6 +36,24 @@ just prepare                        # all discovered benchmarks (same as: just p
 
 List what's available with `just available` (discovered benchmarks and systems).
 
+**BioASQ needs a manual data drop.** Its Task B dataset is gated behind a free
+account, so there's no automatic download. Register at
+[participants-area.bioasq.org](https://participants-area.bioasq.org/datasets/),
+grab a **Task B** training file (e.g. `training14b.json` — it carries the
+`question / gold PubMed documents / answer` triples; the other tasks are indexing
+or NER, not QA), and drop it in:
+
+```bash
+mkdir -p experiments/benchmarks/bioasq/source
+cp /path/to/training14b.json experiments/benchmarks/bioasq/source/
+export NCBI_EMAIL="you@example.com"   # optional: polite/faster PubMed efetch (set NCBI_API_KEY for 10 req/s)
+just prepare bioasq
+```
+
+`prepare` then samples 250 factoid + 250 list questions (stratified, seeded) and
+fetches the gold PubMed abstracts as the corpus, so `doc_id == PubMed ID`. Until
+the file is present, `just prepare` (all benchmarks) just skips BioASQ with a note.
+
 ### Run
 
 Parameters are flags with defaults in `src/marlib/cli.py` (`just run --help`).

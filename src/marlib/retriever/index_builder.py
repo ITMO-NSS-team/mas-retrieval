@@ -42,6 +42,9 @@ def main() -> None:
     )
     for name in names:
         spec = load_spec(name, args.data_dir)
+        if not spec.corpus_path.exists():
+            logger.info(f"skip index: {name} (no corpus.jsonl)")
+            continue
         if (spec.index_path / spec.collection / "chroma.sqlite3").exists() and not args.force:
             logger.info(f"skip index: {name} (index already exists)")
             continue
