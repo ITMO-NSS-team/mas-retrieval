@@ -7,7 +7,6 @@ from marlib.log import logger
 
 
 def main() -> None:
-    """CLI entry point for downloading benchmark data."""
     parser = argparse.ArgumentParser(description="Download benchmark data")
     parser.add_argument(
         "--benchmark",

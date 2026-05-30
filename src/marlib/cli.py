@@ -11,7 +11,7 @@ from uuid import uuid4
 from marlib.adapters import discover_adapters, get_adapter_class
 from marlib.benchmarks import discover, load_spec
 from marlib.log import logger
-from marlib.retriever.core import init_retriever
+from marlib.retriever import Retriever, RetrieverSettings
 from marlib.runner import run_system_on_benchmark, save_results
 from marlib.tracing.schemas import SystemResults
 
@@ -64,20 +64,30 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Generation mode forwarded to the adapter (e.g. shared).",
     )
+    # Defaults for these live in RetrieverSettings (single source of truth); a
+    # flag left unset (None) keeps that default rather than overriding it.
+    rs = RetrieverSettings.model_fields
     parser.add_argument(
         "--retrieve-top-k",
         type=int,
-        default=20,
-        help="Candidates retrieved before rerank.",
+        default=None,
+        help=f"Candidates retrieved before rerank (default: {rs['retrieve_top_k'].default}).",
     )
     parser.add_argument(
-        "--rerank-top-k", type=int, default=10, help="Documents kept after rerank."
+        "--rerank-top-k",
+        type=int,
+        default=None,
+        help=f"Documents kept after rerank (default: {rs['rerank_top_k'].default}).",
     )
     parser.add_argument(
-        "--embedder", default="BAAI/bge-m3", help="Embedder model name."
+        "--embedder",
+        default=None,
+        help=f"Embedder model name (default: {rs['embedder'].default}).",
     )
     parser.add_argument(
-        "--reranker", default="BAAI/bge-reranker-v2-m3", help="Reranker model name."
+        "--reranker",
+        default=None,
+        help=f"Reranker model name (default: {rs['reranker'].default}).",
     )
     parser.add_argument(
         "--data-dir",
@@ -128,21 +138,27 @@ def main() -> None:
         note=args.note or None,
     )
 
-    retriever_config = {
-        "embedder": args.embedder,
-        "reranker": args.reranker,
-        "retrieve_top_k": args.retrieve_top_k,
-        "rerank_top_k": args.rerank_top_k,
-        "index_path": str(spec.index_path),
-        "collection_name": spec.collection,
+    overrides = {
+        k: v
+        for k, v in {
+            "embedder": args.embedder,
+            "reranker": args.reranker,
+            "retrieve_top_k": args.retrieve_top_k,
+            "rerank_top_k": args.rerank_top_k,
+        }.items()
+        if v is not None
     }
+    settings = RetrieverSettings(
+        index_path=spec.index_path, collection=spec.collection, **overrides
+    )
+    # Export so any MCP server spawned by an adapter reconstructs this same config.
+    settings.export_env()
 
     logger.info("Initializing retriever...")
-    retriever = init_retriever(retriever_config)
-    retriever.set_collection(spec.collection)
+    retriever = Retriever(settings)
     logger.info(
         f"Collection '{spec.collection}' loaded",
-        documents=retriever._collection.count(),
+        documents=retriever.document_count,
     )
 
     questions = spec.load_questions(sample_n=args.sample_n)
@@ -198,11 +214,11 @@ def main() -> None:
         "systems": args.systems,
         "sample_n": args.sample_n,
         "generation_mode": args.generation_mode,
-        "retrieve_top_k": args.retrieve_top_k,
-        "rerank_top_k": args.rerank_top_k,
-        "embedder": args.embedder,
-        "reranker": args.reranker,
-        "index_path": str(spec.index_path),
+        "retrieve_top_k": settings.retrieve_top_k,
+        "rerank_top_k": settings.rerank_top_k,
+        "embedder": settings.embedder,
+        "reranker": settings.reranker,
+        "index_path": str(settings.index_path),
         "data_dir": str(args.data_dir),
         "systems_dir": str(args.systems_dir),
         "metrics": list(spec.metrics),

@@ -3,14 +3,12 @@ from __future__ import annotations
 import ast
 import math
 import operator
+from typing import Any, Callable
 
 from marlib.retriever.core import Document, Retriever
 
-# ── Document formatter ───────────────────────────────────────
-
 
 def format_docs(docs: list[Document]) -> str:
-    """Format a list of documents into a readable string."""
     if not docs:
         return "No results found."
     parts = []
@@ -19,20 +17,13 @@ def format_docs(docs: list[Document]) -> str:
     return "\n\n".join(parts)
 
 
-# ── Retrieve ─────────────────────────────────────────────────
-
-
 def do_retrieve(
     retriever: Retriever,
     query: str,
     top_k: int = 20,
 ) -> tuple[list[Document], str]:
-    """Dense retrieval via ChromaDB. Returns (docs, formatted_string)."""
     docs = retriever.retrieve(query, top_k=top_k)
     return docs, format_docs(docs)
-
-
-# ── Rerank ───────────────────────────────────────────────────
 
 
 def do_rerank(
@@ -41,14 +32,12 @@ def do_rerank(
     docs: list[Document],
     top_k: int = 10,
 ) -> tuple[list[Document], str]:
-    """Cross-encoder reranking. Returns (docs, formatted_string)."""
     reranked = retriever.rerank(query, docs, top_k=top_k)
     return reranked, format_docs(reranked)
 
 
-# ── Calculator (AST-based safe eval) ────────────────────────
-
-_SAFE_OPS = {
+# Calculator: AST-based safe eval, no builtins or attribute access.
+_SAFE_OPS: dict[type, Callable[..., Any]] = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
@@ -58,12 +47,16 @@ _SAFE_OPS = {
     ast.USub: operator.neg,
     ast.UAdd: operator.pos,
 }
-_SAFE_FUNCS = {"round": round, "abs": abs, "min": min, "max": max}
+_SAFE_FUNCS: dict[str, Callable[..., Any]] = {
+    "round": round,
+    "abs": abs,
+    "min": min,
+    "max": max,
+}
 _SAFE_CONSTS = {"pi": math.pi, "e": math.e}
 
 
 def _eval_node(node: ast.AST) -> float:
-    """Recursively evaluate an AST node using only safe operations."""
     if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
         return float(node.value)
     if isinstance(node, ast.Name) and node.id in _SAFE_CONSTS:
@@ -79,7 +72,6 @@ def _eval_node(node: ast.AST) -> float:
     ):
         fn_name = node.func.id
         args = [_eval_node(a) for a in node.args]
-        # round(value, ndigits) requires ndigits to be int
         if fn_name == "round" and len(args) == 2:
             args[1] = int(args[1])
         return float(_SAFE_FUNCS[fn_name](*args))
@@ -87,13 +79,11 @@ def _eval_node(node: ast.AST) -> float:
 
 
 def safe_eval(expr: str) -> float:
-    """Safely evaluate a math expression string."""
     tree = ast.parse(expr.strip(), mode="eval")
     return _eval_node(tree.body)
 
 
 def do_calculate(expression: str) -> str:
-    """Evaluate a math expression and return a formatted result string."""
     try:
         result = safe_eval(expression)
         return f"{expression} = {result}"

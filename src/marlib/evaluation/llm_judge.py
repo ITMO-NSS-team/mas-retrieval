@@ -46,17 +46,7 @@ def llm_accuracy(
     gold: str,
     model_name: str,
 ) -> float:
-    """Return 1.0 if the judge deems the predicted answer correct, else 0.0.
-
-    Args:
-        question: The original question.
-        predicted: The system's predicted answer.
-        gold: The ground-truth (gold) answer.
-        model_name: Model identifier for the judge LLM.
-
-    Returns:
-        1.0 if correct, 0.0 otherwise.
-    """
+    """1.0 if the judge deems the predicted answer correct, else 0.0."""
     from pydantic_ai.models.openai import OpenAIChatModel
     from pydantic_ai.providers.openai import OpenAIProvider
 

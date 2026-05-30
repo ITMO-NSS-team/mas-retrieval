@@ -9,9 +9,12 @@ import types
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from marlib.log import logger
+
+if TYPE_CHECKING:
+    from chromadb.api.types import Metadata
 
 # Default location of the benchmark repository (one subdirectory per benchmark).
 DEFAULT_ROOT = Path("experiments/benchmarks")
@@ -28,16 +31,9 @@ def slugify(text: str) -> str:
     return text.strip("_")
 
 
-# --- Spec + discovery ---------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class BenchmarkSpec:
-    """Static description of a benchmark, loaded from its ``manifest.toml``.
-
-    Paths are conventions relative to the benchmark's own directory (``root``),
-    so there is no separate registry of file locations.
-    """
+    """A benchmark loaded from its ``manifest.toml``; paths are conventions under ``root``."""
 
     name: str
     root: Path
@@ -102,14 +98,8 @@ def _ensure_namespace(parent: str, search_dir: Path) -> None:
 
 
 def discover(root: str | Path = DEFAULT_ROOT) -> dict[str, BenchmarkSpec]:
-    """Discover benchmarks by scanning ``<root>/*/manifest.toml``.
-
-    Benchmarks live OUTSIDE the library: each ``<root>/<name>/`` holds a
-    committed ``manifest.toml`` (read into a :class:`BenchmarkSpec`) and a
-    committed ``builder.py`` (imported here so its ``@register`` fires). The
-    available set is exactly the directories that carry a manifest — no
-    hand-maintained registry dict. Empty mapping if the root does not exist yet.
-    """
+    """Scan ``<root>/*/manifest.toml`` for benchmarks, importing each builder.py so
+    its ``@register`` fires. The available set is exactly the dirs with a manifest."""
     root = Path(root)
     specs: dict[str, BenchmarkSpec] = {}
     if not root.is_dir():
@@ -136,23 +126,21 @@ def load_spec(name: str, root: str | Path = DEFAULT_ROOT) -> BenchmarkSpec:
     return specs[name]
 
 
-# --- Builder registry ---------------------------------------------------------
-
-
 class BenchmarkBuilder(ABC):
-    """How to fetch and prepare one benchmark's data.
+    """Fetch and prepare one benchmark's data.
 
-    Heavy dependencies (``datasets``, ``pymupdf``, ...) must be imported lazily
-    inside methods so that importing the registry stays dependency-free and
-    cheap to introspect.
+    Import heavy deps (``datasets``, ``pymupdf``, ...) lazily inside methods so
+    importing the registry stays dependency-free.
     """
 
     @abstractmethod
     def download(self, spec: BenchmarkSpec) -> None:
-        """Download questions (and any raw source files) into the benchmark dir."""
+        """Download questions (and raw source files) into the benchmark dir."""
 
     @abstractmethod
-    def build_corpus(self, spec: BenchmarkSpec) -> None:
+    def build_corpus(
+        self, spec: BenchmarkSpec, max_paragraphs: int | None = None
+    ) -> None:
         """Build the retrieval corpus (``spec.corpus_path``) from downloaded data."""
 
 
@@ -185,27 +173,14 @@ def get_builder(name: str) -> BenchmarkBuilder:
     return _BUILDERS[name]()
 
 
-# --- Shared indexing ----------------------------------------------------------
-# Index building (BGE-M3 -> ChromaDB) is identical for every benchmark, so it is
-# a single shared function rather than per-builder logic.
-
-
+# Identical for every benchmark, so it lives here rather than in each builder.
 def build_index(
     spec: BenchmarkSpec,
     embedder_model: str = "BAAI/bge-m3",
     batch_size: int = 32,
 ) -> None:
-    """Build a ChromaDB collection for ``spec`` from its ``corpus.jsonl``.
-
-    Encodes passages with BGE-M3 and stores them under
-    ``spec.index_path / spec.collection`` — the layout
-    :class:`marlib.retriever.core.Retriever` expects (``index_path/collection``).
-
-    Args:
-        spec: Benchmark to index (corpus read from ``spec.corpus_path``).
-        embedder_model: Model identifier for BGE-M3 embeddings.
-        batch_size: Number of passages to encode per batch.
-    """
+    """Encode ``corpus.jsonl`` with BGE-M3 into a ChromaDB collection under
+    ``spec.index_path / spec.collection`` (the layout Retriever expects)."""
     import gc
     import json
 
@@ -250,9 +225,9 @@ def build_index(
         if embeddings.dtype != np.float32:
             embeddings = embeddings.astype(np.float32)
 
-        metadatas = []
+        metadatas: list[Metadata] = []
         for d in batch_docs:
-            meta = {"title": d["title"], "doc_id": d["doc_id"]}
+            meta = {"title": str(d["title"]), "doc_id": str(d["doc_id"])}
             for key in ("company", "doc_type", "doc_period", "gics_sector"):
                 if d.get(key):
                     meta[key] = str(d[key])

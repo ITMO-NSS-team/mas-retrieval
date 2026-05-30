@@ -32,22 +32,13 @@ class FedotMASAdapter(AbstractAdapter):
     def name(self) -> str:
         return f"fedotmas_{self._generation_mode}"
 
-    def _set_retriever_env(self) -> None:
-        cfg = self._retriever._config
-        os.environ["RETCAP_INDEX_PATH"] = str(cfg["index_path"])
-        os.environ["RETCAP_COLLECTION"] = self._retriever._collection_name
-        os.environ["RETCAP_EMBEDDER"] = str(cfg.get("embedder", "BAAI/bge-m3"))
-        os.environ["RETCAP_RERANKER"] = str(
-            cfg.get("reranker", "BAAI/bge-reranker-v2-m3")
-        )
-
     def _build_mcp_registry(self) -> dict[str, MCPServerConfig]:
         return {
             "retrieval": StdioMCPServer(
                 command=sys.executable,
                 args=(
                     "-m",
-                    "marlib.retriever.mcp_server",
+                    "marlib.mcp_server",
                 ),
                 timeout=30,
                 description=(
@@ -103,18 +94,16 @@ class FedotMASAdapter(AbstractAdapter):
         question: str,
         gold_answer: str,
     ) -> tuple[str, QuestionLog]:
-        self._set_retriever_env()
-
         tracker = TokenTracker(
             question_id=question_id,
             question=question,
             gold_answer=gold_answer,
         )
 
-        docids_file = Path(f"/tmp/retcap_docids_{question_id}.jsonl")
+        docids_file = Path(f"/tmp/marlib_docids_{question_id}.jsonl")
         if docids_file.exists():
             docids_file.unlink()
-        os.environ["RETCAP_DOCIDS_FILE"] = str(docids_file)
+        os.environ["MARLIB_DOCIDS_FILE"] = str(docids_file)
 
         try:
             config, meta_mas = asyncio.run(self._generate_config(question))

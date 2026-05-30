@@ -6,32 +6,18 @@ import os
 from fastmcp import FastMCP
 
 from marlib.adapters.tools import safe_eval
-from marlib.retriever.core import Retriever
+from marlib.retriever import Retriever, RetrieverSettings
 
-mcp = FastMCP("retrieval")
+mcp = FastMCP("marlib-tools")
 
+# Built once in __main__ before the server starts (this module is only ever run
+# as `python -m marlib.mcp_server`, spawned by the retrieval adapters).
 _retriever: Retriever | None = None
-
-
-def _get_retriever() -> Retriever:
-    """Lazily build the retriever from RETCAP_* env vars (set by the adapter)."""
-    global _retriever
-    if _retriever is None:
-        config = {
-            "embedder": os.environ.get("RETCAP_EMBEDDER", "BAAI/bge-m3"),
-            "reranker": os.environ.get("RETCAP_RERANKER", "BAAI/bge-reranker-v2-m3"),
-            "index_path": os.environ.get(
-                "RETCAP_INDEX_PATH", "experiments/benchmarks"
-            ),
-            "collection_name": os.environ.get("RETCAP_COLLECTION", "financebench"),
-        }
-        _retriever = Retriever(config)
-    return _retriever
 
 
 def _log_doc_ids(tool_name: str, query: str, doc_ids: list[str]) -> None:
     """Append doc_ids to the tracking file for the context_recall metric."""
-    path = os.environ.get("RETCAP_DOCIDS_FILE")
+    path = os.environ.get("MARLIB_DOCIDS_FILE")
     if not path:
         return
     with open(path, "a") as f:
@@ -54,9 +40,9 @@ def retrieval_search(query: str, top_k: int = 10, use_rerank: bool = True) -> st
     Returns:
         Formatted ranked passages with titles and scores.
     """
+    assert _retriever is not None, "retriever not initialized (run as __main__)"
     top_k = min(top_k, 20)
-    retriever = _get_retriever()
-    docs = retriever.search(query, top_k=top_k, use_rerank=use_rerank)
+    docs = _retriever.search(query, top_k=top_k, use_rerank=use_rerank)
     doc_ids = [doc.doc_id for doc in docs]
     _log_doc_ids("retrieve", query, doc_ids)
 
@@ -88,4 +74,6 @@ def calculate(expression: str) -> str:
 
 
 if __name__ == "__main__":
+    # Fields are populated from MARLIB_* env at runtime, not constructor args.
+    _retriever = Retriever(RetrieverSettings())  # ty: ignore[missing-argument]
     mcp.run(show_banner=False)

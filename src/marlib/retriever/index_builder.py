@@ -7,7 +7,6 @@ from marlib.log import logger
 
 
 def main() -> None:
-    """CLI entry point for building indexes."""
     parser = argparse.ArgumentParser(description="Build ChromaDB indexes for benchmarks")
     parser.add_argument(
         "--benchmark",

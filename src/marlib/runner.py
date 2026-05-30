@@ -19,23 +19,8 @@ def run_system_on_benchmark(
     model: str,
     metrics: tuple[str, ...],
 ) -> SystemResults:
-    """Run one system over a benchmark and aggregate per-question results.
-
-    Each question is executed by the adapter, then scored with exactly the
-    benchmark's declared ``metrics`` (looked up in the metric registry). A
-    metric that returns ``None`` (does not apply to a question) is omitted from
-    that question and from the averages.
-
-    Args:
-        adapter: Initialized adapter instance.
-        questions: Question dictionaries (each may carry ``gold_doc_ids``).
-        benchmark_name: Name of the benchmark (for labels/logging).
-        model: LLM model identifier (passed to model-based metrics).
-        metrics: Metric names to compute, from ``BenchmarkSpec.metrics``.
-
-    Returns:
-        SystemResults with all question logs and aggregate scores.
-    """
+    """Run one system over a benchmark, scoring each question with the benchmark's
+    declared ``metrics``. A metric returning ``None`` is omitted from the averages."""
     results = SystemResults(
         system_name=adapter.name,
         benchmark=benchmark_name,

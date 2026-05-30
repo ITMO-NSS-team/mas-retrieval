@@ -13,12 +13,7 @@ from marlib.retriever.core import Retriever
 
 
 class AbstractAdapter(ABC):
-    """Base class for MAS auto-generator system adapters.
-
-    Subclasses must implement:
-    - generate_system(): Create MAS code/config for a question
-    - execute(): Run the generated system and return answer + log
-    """
+    """Base class for MAS system adapters: generate_system() + execute()."""
 
     def __init__(
         self,
@@ -26,13 +21,6 @@ class AbstractAdapter(ABC):
         model: str = "gpt-4o-mini",
         **kwargs: Any,
     ) -> None:
-        """Initialize the adapter.
-
-        Args:
-            retriever: Initialized Retriever instance for search.
-            model: LLM model to use for the system.
-            **kwargs: Additional system-specific configuration.
-        """
         self._retriever = retriever
         self._model = model
         self._generation_mode = kwargs.pop("generation_mode", None)
@@ -49,10 +37,7 @@ class AbstractAdapter(ABC):
         description: str,
         sample_questions: list[str] | None = None,
     ) -> None:
-        """Provide benchmark context for shared-mode system generation.
-
-        Called by the runner before each benchmark. Resets adapter caches.
-        """
+        """Set benchmark context (called by the runner before each benchmark); resets caches."""
         self._benchmark_name = benchmark_name
         self._benchmark_description = description
         self._sample_questions = sample_questions or []
@@ -69,18 +54,7 @@ class AbstractAdapter(ABC):
 
     @abstractmethod
     def generate_system(self, question: str) -> str:
-        """Generate MAS code/config for the question.
-
-        This is the "meta" step where the auto-generator creates
-        a system specifically for the given question.
-
-        Args:
-            question: The question to answer.
-
-        Returns:
-            Generated system code, configuration, or description.
-            The format depends on the specific auto-generator.
-        """
+        """Generate the MAS for the question; returns code/config/description (format is adapter-specific)."""
 
     @abstractmethod
     def execute(
@@ -89,22 +63,7 @@ class AbstractAdapter(ABC):
         question: str,
         gold_answer: str,
     ) -> tuple[str, QuestionLog]:
-        """Execute the system on a question and return results.
-
-        This runs the full pipeline:
-        1. Generate system (if applicable)
-        2. Execute generated system
-        3. Track all tool/LLM calls
-        4. Return answer and execution log
-
-        Args:
-            question_id: Unique identifier for the question.
-            question: The question to answer.
-            gold_answer: Ground truth answer (for logging).
-
-        Returns:
-            Tuple of (predicted_answer, QuestionLog).
-        """
+        """Run the (generated) system on the question; return (predicted_answer, QuestionLog)."""
 
 
 # --- Adapter registry ---------------------------------------------------------

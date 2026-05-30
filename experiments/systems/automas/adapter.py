@@ -50,15 +50,6 @@ class AutoMASAdapter(AbstractAdapter):
     def _setup_mcp_registry(self) -> None:
         pass
 
-    def _set_retriever_env(self) -> None:
-        cfg = self._retriever._config
-        os.environ["RETCAP_INDEX_PATH"] = str(cfg["index_path"])
-        os.environ["RETCAP_COLLECTION"] = self._retriever._collection_name
-        os.environ["RETCAP_EMBEDDER"] = str(cfg.get("embedder", "BAAI/bge-m3"))
-        os.environ["RETCAP_RERANKER"] = str(
-            cfg.get("reranker", "BAAI/bge-reranker-v2-m3")
-        )
-
     def _set_llm_env(self) -> None:
         model = self._model
         os.environ.setdefault("AGENT_NODE_MODEL", model)
@@ -66,7 +57,6 @@ class AutoMASAdapter(AbstractAdapter):
 
     def _init_framework(self) -> None:
         self._set_llm_env()
-        self._set_retriever_env()
         self._setup_mcp_registry()
 
     def generate_system(self, question: str) -> str:
@@ -126,10 +116,10 @@ class AutoMASAdapter(AbstractAdapter):
             gold_answer=gold_answer,
         )
 
-        docids_file = Path(f"/tmp/retcap_docids_{question_id}.jsonl")
+        docids_file = Path(f"/tmp/marlib_docids_{question_id}.jsonl")
         if docids_file.exists():
             docids_file.unlink()
-        os.environ["RETCAP_DOCIDS_FILE"] = str(docids_file)
+        os.environ["MARLIB_DOCIDS_FILE"] = str(docids_file)
 
         try:
             result, pipeline = asyncio.run(self._execute_async(question))

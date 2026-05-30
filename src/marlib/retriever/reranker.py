@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class BGEReranker:
-    """Wrapper around BGE-Reranker for cross-encoder re-ranking."""
+    """Cross-encoder re-ranking with BGE-Reranker."""
 
     def __init__(
         self,
@@ -20,8 +20,6 @@ class BGEReranker:
         use_fp16: bool = True,
     ) -> None:
         from FlagEmbedding import FlagReranker
-
-        self._model_name = model_name
 
         if device is None:
             if torch.cuda.is_available():
@@ -50,7 +48,7 @@ class BGEReranker:
 
         from marlib.retriever.core import Document
 
-        sentence_pairs = [[query, doc.text] for doc in documents]
+        sentence_pairs = [(query, doc.text) for doc in documents]
         scores = self._model.compute_score(sentence_pairs)
         if isinstance(scores, (int, float)):
             scores = [scores]

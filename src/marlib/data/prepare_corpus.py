@@ -7,7 +7,6 @@ from marlib.log import logger
 
 
 def main() -> None:
-    """CLI entry point for corpus preparation."""
     parser = argparse.ArgumentParser(description="Build benchmark retrieval corpora")
     parser.add_argument(
         "--benchmark",
