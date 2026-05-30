@@ -5,6 +5,12 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Default models, referenced wherever a model name is needed (settings, the
+# index builder, the embedder/reranker classes) so indexing and retrieval can
+# never silently default to different models.
+DEFAULT_EMBEDDER = "BAAI/bge-m3"
+DEFAULT_RERANKER = "BAAI/bge-reranker-v2-m3"
+
 
 class RetrieverSettings(BaseSettings):
     """Single source of truth for retriever configuration.
@@ -24,8 +30,8 @@ class RetrieverSettings(BaseSettings):
     index_path: Path
     collection: str
 
-    embedder: str = "BAAI/bge-m3"
-    reranker: str = "BAAI/bge-reranker-v2-m3"
+    embedder: str = DEFAULT_EMBEDDER
+    reranker: str = DEFAULT_RERANKER
     retrieve_top_k: int = 20
     rerank_top_k: int = 10
 

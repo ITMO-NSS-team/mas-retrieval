@@ -4,6 +4,7 @@ import argparse
 
 from marlib.benchmarks import build_index, discover, load_spec
 from marlib.log import logger
+from marlib.retriever.config import DEFAULT_EMBEDDER
 
 
 def main() -> None:
@@ -22,8 +23,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--model",
-        default="BAAI/bge-m3",
-        help="Embedder model name.",
+        default=DEFAULT_EMBEDDER,
+        help=f"Embedder model name (default: {DEFAULT_EMBEDDER}).",
     )
     parser.add_argument(
         "--batch-size",

@@ -176,11 +176,15 @@ def get_builder(name: str) -> BenchmarkBuilder:
 # Identical for every benchmark, so it lives here rather than in each builder.
 def build_index(
     spec: BenchmarkSpec,
-    embedder_model: str = "BAAI/bge-m3",
+    embedder_model: str | None = None,
     batch_size: int = 32,
 ) -> None:
-    """Encode ``corpus.jsonl`` with BGE-M3 into a ChromaDB collection under
-    ``spec.index_path / spec.collection`` (the layout Retriever expects)."""
+    """Encode ``corpus.jsonl`` into a ChromaDB collection under
+    ``spec.index_path / spec.collection`` (the layout Retriever expects).
+
+    ``embedder_model`` defaults to the same model Retriever queries with, so an
+    index is never built with a different model than retrieval uses.
+    """
     import gc
     import json
 
@@ -190,7 +194,10 @@ def build_index(
     from tqdm import tqdm
 
     from marlib.log import logger
+    from marlib.retriever.config import DEFAULT_EMBEDDER
     from marlib.retriever.embedder import BGEM3Embedder
+
+    embedder_model = embedder_model or DEFAULT_EMBEDDER
 
     corpus_path = spec.corpus_path
     chroma_path = spec.index_path / spec.collection

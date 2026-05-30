@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from marlib.log import logger
+from marlib.retriever.config import DEFAULT_RERANKER
 
 if TYPE_CHECKING:
     from marlib.retriever.core import Document
@@ -15,7 +16,7 @@ class BGEReranker:
 
     def __init__(
         self,
-        model_name: str = "BAAI/bge-reranker-v2-m3",
+        model_name: str = DEFAULT_RERANKER,
         device: str | None = None,
         use_fp16: bool = True,
     ) -> None:
@@ -49,7 +50,9 @@ class BGEReranker:
         from marlib.retriever.core import Document
 
         sentence_pairs = [(query, doc.text) for doc in documents]
-        scores = self._model.compute_score(sentence_pairs)
+        # normalize=True applies a sigmoid, keeping scores in [0, 1] so they are
+        # comparable with the cosine similarities produced by retrieve().
+        scores = self._model.compute_score(sentence_pairs, normalize=True)
         if isinstance(scores, (int, float)):
             scores = [scores]
 

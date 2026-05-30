@@ -5,7 +5,7 @@ import os
 
 from fastmcp import FastMCP
 
-from marlib.adapters.tools import safe_eval
+from marlib.adapters.calc import safe_eval
 from marlib.retriever import Retriever, RetrieverSettings
 
 mcp = FastMCP("marlib-tools")

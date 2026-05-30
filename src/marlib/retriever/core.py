@@ -13,7 +13,12 @@ from marlib.retriever.reranker import BGEReranker
 
 @dataclass
 class Document:
-    """A retrieved passage with metadata."""
+    """A retrieved passage with metadata.
+
+    ``score`` is a relevance score in [0, 1], higher = more relevant: cosine
+    similarity after retrieve(), sigmoid-normalized cross-encoder relevance
+    after rerank().
+    """
 
     doc_id: str
     title: str

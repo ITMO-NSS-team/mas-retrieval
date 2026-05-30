@@ -32,6 +32,7 @@ bench = "marlib.cli:main"
 
 
 [dependency-groups]
+dev = ["pytest>=8.4.0"]
 benchmarks = ["datasets>=4.5.0", "pymupdf>=1.25.0"]
 ma_rag = ["pydantic-graph>=1.56.0"]
 swarm_agentic = ["langchain-openai>=0.3.0", "langchain-core>=0.3.0"]
@@ -41,3 +42,7 @@ mas_zero = ["openai>=2.16.0", "backoff>=2.2.0"]
 
 # fedotmas / automas: install from local source
 #   uv pip install -e automas-research/
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

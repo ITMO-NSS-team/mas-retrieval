@@ -4,6 +4,7 @@ import numpy as np
 import torch
 
 from marlib.log import logger
+from marlib.retriever.config import DEFAULT_EMBEDDER
 
 
 class BGEM3Embedder:
@@ -11,7 +12,7 @@ class BGEM3Embedder:
 
     def __init__(
         self,
-        model_name: str = "BAAI/bge-m3",
+        model_name: str = DEFAULT_EMBEDDER,
         device: str | None = None,
         use_fp16: bool = True,
     ) -> None:
