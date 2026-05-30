@@ -43,6 +43,7 @@ Parameters are flags with defaults in `src/marlib/cli.py` (`just run --help`).
 ```bash
 just run --benchmark financebench --sample-n 10
 just run --benchmark hotpotqa --systems naive_rag fedotmas --note "retriever check"
+just run --benchmark financebench --systems fedotmas --model openai/gpt-4o  # pick the LLM (default: openai/gpt-4o-mini)
 ```
 
 Pass several systems space-separated after `--systems` to run them in one process.
