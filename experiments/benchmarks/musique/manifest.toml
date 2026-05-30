@@ -1,0 +1,10 @@
+name = "musique"
+collection = "musique"
+split = "answerable_dev"
+metrics = ["exact_match", "f1", "context_recall", "llm_accuracy"]
+description = """
+Strict multi-hop question answering over Wikipedia (MuSiQue-Answerable). \
+Questions are composed from 2–4 single-hop steps so that they cannot be solved \
+by shortcuts, requiring genuine multi-step retrieval and reasoning to produce a \
+short factual answer. Gold relevance is given as the supporting paragraph ids.
+"""
