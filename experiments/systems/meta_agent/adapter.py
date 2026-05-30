@@ -1,0 +1,266 @@
+"""MetaAgent FSM-based multi-agent adapter."""
+
+from __future__ import annotations
+
+import copy
+import os
+import re
+from typing import Any
+
+from marlib.adapters.base import AbstractAdapter, register
+from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
+from marlib.log import logger
+from marlib.retriever.core import Document, Retriever
+from marlib.tracing.schemas import QuestionLog
+from marlib.tracing.tracker import TokenTracker
+
+from .fsm_gen import generate_mas
+from .multi_agent import MultiAgentSystem
+
+_TASK_DESCRIPTION = (
+    "Answer questions by retrieving relevant documents, optionally reranking "
+    "them for precision, and computing numerical answers when needed. "
+    "Available tools: retrieve (semantic search), rerank (cross-encoder "
+    "reranking of retrieved documents), calculate (safe math evaluation)."
+)
+
+
+@register("meta_agent")
+class MetaAgentAdapter(AbstractAdapter):
+    """MetaAgent FSM-based multi-agent adapter.
+
+    Generates an agent team + FSM once via LLM (lazy init),
+    then reuses them for every question.
+    """
+
+    def __init__(
+        self,
+        retriever: Retriever,
+        model: str = "gpt-4o-mini",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(retriever, model, **kwargs)
+        if self._generation_mode is None:
+            self._generation_mode = "shared"
+        self._agents_json: list[dict] | None = None
+        self._states_json: dict | None = None
+        self._initialized = False
+
+    def _build_task_description(self) -> str:
+        """Build task description enriched with benchmark context if available."""
+        task = _TASK_DESCRIPTION
+        if self._benchmark_description:
+            task += f"\n\nBenchmark context: {self._benchmark_description}"
+        if self._sample_questions:
+            task += "\n\nExample questions:\n" + "\n".join(
+                f"- {q}" for q in self._sample_questions[:3]
+            )
+        return task
+
+    def _init_team(self) -> None:
+        """Generate agent team + FSM once (lazy)."""
+        if self._initialized:
+            return
+
+        base_url = os.environ.get("OPENAI_BASE_URL")
+        api_key = os.environ.get("OPENAI_API_KEY")
+
+        task = self._build_task_description()
+        logger.info(f"Generating MetaAgent team for model={self._model}")
+        agents_json, states_json = generate_mas(
+            task=task,
+            model=self._model,
+            base_url=base_url,
+            api_key=api_key,
+        )
+        self._agents_json = agents_json
+        self._states_json = states_json
+        self._initialized = True
+        logger.info(
+            f"MetaAgent team ready: {len(agents_json)} agents, "
+            f"{len(states_json['states'])} states"
+        )
+
+    _FSM_NOISE_RE = re.compile(
+        r"<STATE_TRANS>:\s*\S+|<INFO>.*?</INFO>|<tool_call>.*?</tool_call>",
+        re.DOTALL,
+    )
+
+    @staticmethod
+    def _clean_answer(answer: str) -> str:
+        """Strip FSM control tokens that should never appear in final answer."""
+        cleaned = MetaAgentAdapter._FSM_NOISE_RE.sub("", answer).strip()
+        return cleaned
+
+    def describe_system(self) -> str:
+        """Return a human-readable description of the MAS team and FSM."""
+        self._init_team()
+        assert self._agents_json is not None
+        assert self._states_json is not None
+
+        agents = {a["agent_id"]: a for a in self._agents_json}
+        states = self._states_json["states"]
+        transitions = self._states_json["transitions"]
+
+        lines: list[str] = []
+        lines.append("=" * 60)
+        lines.append("META-AGENT SYSTEM")
+        lines.append("=" * 60)
+
+        # ── Agents ──
+        lines.append(f"\nAgents ({len(agents)}):")
+        lines.append("-" * 40)
+        for aid, a in agents.items():
+            tools = ", ".join(a.get("tools", [])) or "(none)"
+            lines.append(f"  [{aid}] {a['name']}")
+            lines.append(f"       tools: {tools}")
+            prompt_preview = a.get("system_prompt", "")[:120].replace("\n", " ")
+            lines.append(f"       prompt: {prompt_preview}...")
+
+        # ── States (FSM nodes) ──
+        lines.append(f"\nStates ({len(states)}):")
+        lines.append("-" * 40)
+        for s in states:
+            agent_name = agents.get(s["agent_id"], {}).get("name", "?")
+            flags = []
+            if s.get("is_initial"):
+                flags.append("INITIAL")
+            if s.get("is_final"):
+                flags.append("FINAL")
+            flag_str = f" [{', '.join(flags)}]" if flags else ""
+            listeners = s.get("listener", [])
+            listener_str = f"  listeners -> {listeners}" if listeners else ""
+            lines.append(
+                f"  State {s['state_id']}: agent [{s['agent_id']}] "
+                f"{agent_name}{flag_str}"
+            )
+            instr_preview = s.get("instruction", "")[:100].replace("\n", " ")
+            lines.append(f"       instruction: {instr_preview}")
+            if listener_str:
+                lines.append(f"      {listener_str}")
+
+        # ── Transitions (FSM edges) ──
+        lines.append(f"\nTransitions ({len(transitions)}):")
+        lines.append("-" * 40)
+        for t in transitions:
+            from_name = "?"
+            to_name = "?"
+            for s in states:
+                if s["state_id"] == t["from_state"]:
+                    from_name = agents.get(s["agent_id"], {}).get("name", "?")
+                if s["state_id"] == t["to_state"]:
+                    to_name = agents.get(s["agent_id"], {}).get("name", "?")
+            lines.append(
+                f"  {t['from_state']} ({from_name}) ---> {t['to_state']} ({to_name})"
+            )
+            lines.append(f"       when: {t['condition']}")
+
+        lines.append("=" * 60)
+        return "\n".join(lines)
+
+    def _on_benchmark_change(self) -> None:
+        """Reset cached team/FSM when benchmark switches."""
+        self._initialized = False
+        self._agents_json = None
+        self._states_json = None
+
+    @property
+    def name(self) -> str:
+        return f"meta_agent_{self._generation_mode}"
+
+    def generate_system(self, question: str) -> str:
+        self._init_team()
+        assert self._agents_json is not None
+        assert self._states_json is not None
+        return (
+            f"meta_agent team: {len(self._agents_json)} agents, "
+            f"{len(self._states_json['states'])} states"
+        )
+
+    def _make_tool_executor(
+        self,
+        tracker: TokenTracker,
+    ) -> Any:
+        """Build a closure that dispatches tool calls to shared tools."""
+        last_retrieved: list[Document] = []
+        retriever = self._retriever
+
+        def executor(name: str, **kwargs: Any) -> str:
+            nonlocal last_retrieved
+
+            if name == "retrieve":
+                query = kwargs.get("query", "")
+                top_k = int(kwargs.get("top_k", 20))
+                with tracker.track_tool("retrieve", query, top_k) as results:
+                    docs, formatted = do_retrieve(retriever, query, top_k)
+                    last_retrieved = docs
+                    results.extend([d.doc_id for d in docs])
+                return formatted
+
+            if name == "rerank":
+                query = kwargs.get("query", "")
+                top_k = int(kwargs.get("top_k", 10))
+                with tracker.track_tool("rerank", query, top_k) as results:
+                    docs, formatted = do_rerank(
+                        retriever,
+                        query,
+                        last_retrieved,
+                        top_k,
+                    )
+                    last_retrieved = docs
+                    results.extend([d.doc_id for d in docs])
+                return formatted
+
+            if name == "calculate":
+                expression = kwargs.get("expression", "")
+                with tracker.track_tool("calculate", expression, 0) as results:
+                    result = do_calculate(expression)
+                return result
+
+            return f"Unknown tool: {name}"
+
+        return executor
+
+    def execute(
+        self,
+        question_id: str,
+        question: str,
+        gold_answer: str,
+    ) -> tuple[str, QuestionLog]:
+        if self._generation_mode == "per_question":
+            self._initialized = False
+        self._init_team()
+        assert self._agents_json is not None
+        assert self._states_json is not None
+        logger.info(self.describe_system())
+
+        tracker = TokenTracker(
+            question_id=question_id,
+            question=question,
+            gold_answer=gold_answer,
+        )
+
+        try:
+            base_url = os.environ.get("OPENAI_BASE_URL")
+            api_key = os.environ.get("OPENAI_API_KEY")
+
+            tool_executor = self._make_tool_executor(tracker)
+
+            mas = MultiAgentSystem(
+                agents_json=copy.deepcopy(self._agents_json),
+                states_json=self._states_json,
+                tool_executor=tool_executor,
+                model=self._model,
+                base_url=base_url,
+                api_key=api_key,
+                tracker=tracker,
+            )
+
+            answer, _cost = mas.start(question)
+            answer = self._clean_answer(answer)
+
+        except Exception as e:
+            tracker.set_error(str(e))
+            answer = ""
+
+        return answer, tracker.to_question_log(answer)

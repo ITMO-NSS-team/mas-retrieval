@@ -1,36 +1,24 @@
-# Download benchmarks
-download: download-hotpotqa download-financebench download-financebench-pdfs
+# List discovered benchmarks and systems (only systems with installed deps appear).
+available:
+    uv run --no-sync python -c "from marlib.benchmarks import discover; from marlib.adapters import discover_adapters; print('benchmarks:', list(discover())); print('systems:', discover_adapters())"
 
-download-hotpotqa:
-    uv run download-benchmarks --benchmark hotpotqa
+# Prepare benchmarks: download -> corpus -> index; already-done steps skip themselves.
+# Pass one or more names, or nothing / "all" for every discovered benchmark.
+# E.g. just prepare hotpotqa  |  just prepare hotpotqa financebench  |  just prepare all
+prepare *names:
+    #!/usr/bin/env sh
+    set -eu
+    names="{{names}}"
+    if [ -z "$names" ] || [ "$names" = "all" ]; then
+        names=$(uv run --no-sync python -c "from marlib.benchmarks import discover; print(' '.join(discover()))")
+    fi
+    for name in $names; do
+        echo ">>> preparing $name"
+        uv run download-benchmarks --benchmark "$name"
+        uv run prepare-corpus --benchmark "$name"
+        uv run build-index --benchmark "$name"
+    done
 
-download-financebench:
-    uv run download-benchmarks --benchmark financebench
-
-download-financebench-pdfs:
-    uv run download-benchmarks --benchmark financebench-pdfs
-
-# Prepare corpora
-prepare: prepare-hotpotqa prepare-financebench
-
-prepare-hotpotqa:
-    uv run prepare-corpus --dataset hotpotqa
-
-prepare-financebench:
-    uv run prepare-corpus --dataset financebench
-
-# Build indexes
-index-all: index-hotpotqa index-financebench
-
-index-hotpotqa:
-    uv run build-index --dataset hotpotqa
-
-index-financebench:
-    uv run build-index --dataset financebench
-
-# Run tests
-test-hotpot:
-    uv run run-experiment --config src/retcapslib/cfg_test_hotpot.yaml
-
-test-financebench:
-    uv run run-experiment --config src/retcapslib/cfg_test_financebench.yaml
+# Run experiments (cross-OS); pass any CLI flag. See all with: just run --help
+run *ARGS:
+    uv run --no-sync python -m marlib.cli {{ARGS}}

@@ -8,10 +8,20 @@ wheels/
 
 # Virtual environments
 .venv
-experiments
+
+# experiments/ holds content (systems + benchmarks). Adapter code under
+# systems/ is tracked in full; benchmark dirs track only the committed recipe
+# (manifest.toml + builder.py), while generated/downloaded data is ignored.
+/experiments/*
+!/experiments/benchmarks
+!/experiments/systems
+/experiments/benchmarks/*/*
+!/experiments/benchmarks/*/manifest.toml
+!/experiments/benchmarks/*/builder.py
 
 uv.lock
 results/
 .env
 
 .DS_Store
+.claude/

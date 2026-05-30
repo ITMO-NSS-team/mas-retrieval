@@ -1,50 +1,48 @@
-## Zero-Shot Multi-Agent Generation for Specialized RAG Workflows: An Empirical Evaluation
+## Evaluating Auto-Generated Multi-Agent Systems on QA & RAG Tasks
 
-This repo contains code for preparing data and evaluating auto-generated multi-agent systems on retrieval tasks.
-Before running, ensure that you have enough vRAM for the BGE-M3 embedder (~3-4 GB).
-You must set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `GITHUB_TOKEN` in the `.env` file.
+Tiny library `marlib` is the **harness**: retriever, tracing, evaluation, CLI, and
+the adapter/benchmark contracts + discovery. The **content** it measures lives
+outside the package and is discovered by path:
 
-### Setup Python environment
-
-Only Unix-like systems are supported. In this project, `uv` will work well:
-
-```bash
-uv sync
+```
+experiments/
+  systems/<name>/       # a system under test: __init__.py + adapter.py
+  benchmarks/<name>/    # a benchmark: manifest.toml + builder.py (+ generated data)
 ```
 
-### Pipeline overview
+Add a system or benchmark by dropping in a folder — no library edits.
 
-The pipeline consists of four stages: download benchmarks, prepare corpus, build index, run experiment.
-Before you need to instal the [just](https://github.com/casey/just#installation) command runner.
-
-#### HotpotQA
+### Setup
 
 ```bash
-just download-hotpotqa        # Download 500 questions from HuggingFace
-just prepare-hotpotqa          # Extract ~500K Wikipedia paragraphs
-just index-hotpotqa            # Build ChromaDB index with BGE-M3
-just test-hotpot               # Run experiment
+uv sync                                            # harness only
+uv sync --group benchmarks --group swarm_agentic   # + content you actually run
 ```
 
-#### FinanceBench
+Content deps are opt-in groups in `pyproject.toml` — one per system plus a
+`benchmarks` group for the builders. `fedotmas`/`automas` install from local
+source. Set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `GITHUB_TOKEN` in `.env`.
+
+### Prepare a benchmark
+
+Downloads questions/sources, builds the corpus, and indexes it. Already-done
+steps are skipped.
 
 ```bash
-just download-financebench       # Download 150 questions from HuggingFace
-just download-financebench-pdfs  # Download ~75 SEC filing PDFs from GitHub
-just prepare-financebench        # Extract text from all PDF pages via PyMuPDF
-just index-financebench          # Build ChromaDB index with BGE-M3
-just test-financebench           # Run experiment
+just prepare hotpotqa
+just prepare hotpotqa financebench  # several, space-separated
+just prepare                        # all discovered benchmarks (same as: just prepare all)
 ```
 
-### Configuration
+List what's available with `just available` (discovered benchmarks and systems).
 
-Experiment configuration files are in `src/retcapslib/`:
+### Run
 
-- `cfg_test_hotpot.yaml` — HotpotQA experiment config
-- `cfg_test_financebench.yaml` — FinanceBench experiment config
-
-To run with a custom config:
+Parameters are flags with defaults in `src/marlib/cli.py` (`just run --help`).
 
 ```bash
-uv run run-experiment --config path/to/config.yaml
+just run --benchmark financebench --sample-n 10
+just run --benchmark hotpotqa --systems naive_rag fedotmas --note "retriever check"
 ```
+
+Pass several systems space-separated after `--systems` to run them in one process.
