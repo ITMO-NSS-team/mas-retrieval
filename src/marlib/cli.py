@@ -62,7 +62,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--generation-mode",
         default=None,
-        help="Generation mode forwarded to the adapter (e.g. shared).",
+        choices=["one_time", "per_task"],
+        help="When the system (re)generates its MAS: 'one_time' generates once "
+        "and reuses it across the whole benchmark; 'per_task' regenerates for "
+        "each question. Default is per-adapter.",
     )
     # Defaults for these live in RetrieverSettings (single source of truth); a
     # flag left unset (None) keeps that default rather than overriding it.

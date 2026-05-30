@@ -77,7 +77,7 @@ def build_meta_prompt(
 
     Args:
         archive: List of block dicts with {thought, name, code}.
-        question: Optional question to include for per_question mode.
+        question: Optional question to include for per_task mode.
         benchmark_description: Description of the benchmark task type.
         sample_questions: Example questions from the benchmark.
 

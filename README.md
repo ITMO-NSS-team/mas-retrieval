@@ -46,3 +46,15 @@ just run --benchmark hotpotqa --systems naive_rag fedotmas --note "retriever che
 ```
 
 Pass several systems space-separated after `--systems` to run them in one process.
+
+**Generation mode.** Systems that auto-generate a MAS can do it once for the whole
+benchmark or fresh for every question — pick with `--generation-mode`:
+
+```bash
+just run --benchmark financebench --systems fedotmas --generation-mode one_time  # generate once, reuse across the benchmark
+just run --benchmark financebench --systems fedotmas --generation-mode per_task  # regenerate the MAS for each question
+```
+
+Omit the flag to use each adapter's default. The mode is recorded in the run's
+provenance and appended to the system name in results (e.g. `fedotmas_one_time`),
+so the two modes never overwrite each other.

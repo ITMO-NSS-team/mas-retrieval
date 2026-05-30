@@ -20,7 +20,7 @@ class AutoMASAdapter(AbstractAdapter):
     ) -> None:
         super().__init__(retriever, model, **kwargs)
         if self._generation_mode is None:
-            self._generation_mode = "per_question"
+            self._generation_mode = "per_task"
 
         self._cached_pool: Any = None
         self._cached_graph: Any = None
@@ -30,7 +30,7 @@ class AutoMASAdapter(AbstractAdapter):
         self._cached_graph = None
 
     def _build_task_description(self) -> str:
-        """Build a generic task description from benchmark context for shared mode."""
+        """Build a generic task description from benchmark context for one_time mode."""
         parts = []
         if self._benchmark_description:
             parts.append(self._benchmark_description)
@@ -60,11 +60,11 @@ class AutoMASAdapter(AbstractAdapter):
         self._setup_mcp_registry()
 
     def generate_system(self, question: str) -> str:
-        return "AutoMAS auto-generated multi-agent pipeline (per-question)"
+        return "AutoMAS auto-generated multi-agent pipeline (per-task)"
 
     async def _ensure_structure(self, question: str) -> tuple[Any, Any]:
         if (
-            self._generation_mode == "shared"
+            self._generation_mode == "one_time"
             and self._cached_pool is not None
             and self._cached_graph is not None
         ):
@@ -73,9 +73,9 @@ class AutoMASAdapter(AbstractAdapter):
         pool_gen = PoolGenerator()
         graph_gen = GraphGenerator()
 
-        # Use generic benchmark description for shared mode,
-        # specific question for per-question mode
-        if self._generation_mode == "shared":
+        # Use generic benchmark description for one_time mode,
+        # specific question for per-task mode
+        if self._generation_mode == "one_time":
             task_description = self._build_task_description()
         else:
             task_description = question
@@ -83,7 +83,7 @@ class AutoMASAdapter(AbstractAdapter):
         pool = await pool_gen.create_pool(task_description)
         graph = await graph_gen.create_graph(pool, task_description)
 
-        if self._generation_mode == "shared":
+        if self._generation_mode == "one_time":
             self._cached_pool = pool
             self._cached_graph = graph
 

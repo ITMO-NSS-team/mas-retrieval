@@ -41,7 +41,7 @@ class MetaAgentAdapter(AbstractAdapter):
     ) -> None:
         super().__init__(retriever, model, **kwargs)
         if self._generation_mode is None:
-            self._generation_mode = "shared"
+            self._generation_mode = "one_time"
         self._agents_json: list[dict] | None = None
         self._states_json: dict | None = None
         self._initialized = False
@@ -227,7 +227,7 @@ class MetaAgentAdapter(AbstractAdapter):
         question: str,
         gold_answer: str,
     ) -> tuple[str, QuestionLog]:
-        if self._generation_mode == "per_question":
+        if self._generation_mode == "per_task":
             self._initialized = False
         self._init_team()
         assert self._agents_json is not None

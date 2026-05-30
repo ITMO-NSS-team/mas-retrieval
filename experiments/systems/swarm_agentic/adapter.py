@@ -33,7 +33,7 @@ class SwarmAgenticAdapter(AbstractAdapter):
     ) -> None:
         super().__init__(retriever, model, **kwargs)
         if self._generation_mode is None:
-            self._generation_mode = "shared"
+            self._generation_mode = "one_time"
         self._team_dict: dict[str, Any] | None = None
         self._forward_code: str | None = None
         self._initialized = False
@@ -95,7 +95,7 @@ class SwarmAgenticAdapter(AbstractAdapter):
         question: str,
         gold_answer: str,
     ) -> tuple[str, QuestionLog]:
-        if self._generation_mode == "per_question":
+        if self._generation_mode == "per_task":
             self._initialized = False
         self._init_team()
         assert self._team_dict is not None

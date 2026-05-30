@@ -21,7 +21,7 @@ class FedotMASAdapter(AbstractAdapter):
     ) -> None:
         super().__init__(retriever, model, **kwargs)
         if self._generation_mode is None:
-            self._generation_mode = "shared"
+            self._generation_mode = "one_time"
 
         self._cached_config: PipelineConfig | None = None
 
@@ -64,7 +64,7 @@ class FedotMASAdapter(AbstractAdapter):
     async def _generate_config(
         self, question: str
     ) -> tuple[PipelineConfig, MAS | None]:
-        if self._generation_mode == "shared" and self._cached_config is not None:
+        if self._generation_mode == "one_time" and self._cached_config is not None:
             return self._cached_config, None
 
         registry = self._build_mcp_registry()
@@ -72,14 +72,14 @@ class FedotMASAdapter(AbstractAdapter):
             meta_model=self._model, worker_models=[self._model], mcp_servers=registry
         )
 
-        if self._generation_mode == "shared":
+        if self._generation_mode == "one_time":
             task_description = self._build_task_description()
         else:
             task_description = question
 
         config = await mas.generate_config(task_description)
 
-        if self._generation_mode == "shared":
+        if self._generation_mode == "one_time":
             self._cached_config = config
 
         return config, mas

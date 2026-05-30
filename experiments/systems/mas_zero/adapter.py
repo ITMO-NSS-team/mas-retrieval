@@ -3,7 +3,7 @@
 Uses MAS-Zero's meta-agent concept (LLM designs agent architectures from
 building blocks) with RAG tools, without importing from the MAS-Zero directory.
 
-Supports 'shared' (generate once, reuse) and 'per_question' modes.
+Supports 'one_time' (generate once, reuse) and 'per_task' modes.
 """
 
 from __future__ import annotations
@@ -65,11 +65,11 @@ class MASZeroAdapter(AbstractAdapter):
     ) -> None:
         super().__init__(retriever, model, **kwargs)
         if self._generation_mode is None:
-            self._generation_mode = "shared"
-        if self._generation_mode not in ("shared", "per_question"):
+            self._generation_mode = "one_time"
+        if self._generation_mode not in ("one_time", "per_task"):
             raise ValueError(
                 f"Invalid generation_mode '{self._generation_mode}'; "
-                "use 'shared' or 'per_question'"
+                "use 'one_time' or 'per_task'"
             )
 
         self._n_generation: int = self._config.get("n_generation", 1)
@@ -111,7 +111,7 @@ class MASZeroAdapter(AbstractAdapter):
             )
             self._blocks = list(RAG_BLOCKS)
 
-        # Cached architecture (for shared mode)
+        # Cached architecture (for one_time mode)
         self._cached_system: dict | None = None
 
         # Tracing
@@ -146,18 +146,18 @@ class MASZeroAdapter(AbstractAdapter):
     def generate_system(self, question: str) -> str:
         """Generate a MAS architecture via the meta-model.
 
-        In shared mode, generates once and caches. In per_question mode,
+        In one_time mode, generates once and caches. In per_task mode,
         generates a fresh architecture for each question.
 
         Returns:
             Multi-line description including architecture name, reasoning,
             and the generated forward() code.
         """
-        if self._generation_mode == "shared" and self._cached_system is not None:
+        if self._generation_mode == "one_time" and self._cached_system is not None:
             return self._format_system_description(self._cached_system)
 
         question_for_prompt = (
-            question if self._generation_mode == "per_question" else None
+            question if self._generation_mode == "per_task" else None
         )
         archive = list(self._blocks)
 
@@ -166,7 +166,7 @@ class MASZeroAdapter(AbstractAdapter):
             question=question_for_prompt,
             benchmark_description=self._benchmark_description,
             sample_questions=(
-                self._sample_questions if self._generation_mode == "shared" else None
+                self._sample_questions if self._generation_mode == "one_time" else None
             ),
         )
         solution = self._call_meta_model(prompt)
@@ -304,7 +304,7 @@ class MASZeroAdapter(AbstractAdapter):
         question: str,
         gold_answer: str,
     ) -> tuple[str, QuestionLog]:
-        if self._generation_mode == "per_question":
+        if self._generation_mode == "per_task":
             self._cached_system = None
 
         tracker = TokenTracker(
