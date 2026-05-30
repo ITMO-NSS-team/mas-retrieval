@@ -1,6 +1,6 @@
 ## Evaluating Auto-Generated Multi-Agent Systems on QA & RAG Tasks
 
-`marlib` (in `src/`) is the **harness**: retriever, tracing, evaluation, CLI, and
+Tiny library `marlib` is the **harness**: retriever, tracing, evaluation, CLI, and
 the adapter/benchmark contracts + discovery. The **content** it measures lives
 outside the package and is discovered by path:
 
@@ -30,7 +30,8 @@ steps are skipped.
 
 ```bash
 just prepare hotpotqa
-just prepare financebench
+just prepare hotpotqa financebench  # several, space-separated
+just prepare                        # all discovered benchmarks (same as: just prepare all)
 ```
 
 List what's available with `just available` (discovered benchmarks and systems).
