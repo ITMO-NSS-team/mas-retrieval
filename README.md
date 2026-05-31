@@ -46,7 +46,6 @@ or NER, not QA), and drop it in:
 ```bash
 mkdir -p experiments/benchmarks/bioasq/source
 cp /path/to/training14b.json experiments/benchmarks/bioasq/source/
-export NCBI_EMAIL="you@example.com"   # optional: polite/faster PubMed efetch (set NCBI_API_KEY for 10 req/s)
 just prepare bioasq
 ```
 
