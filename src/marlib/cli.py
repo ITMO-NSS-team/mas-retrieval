@@ -9,7 +9,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from marlib.adapters import discover_adapters, get_adapter_class
-from marlib.benchmarks import discover, load_spec
+from marlib.benchmarks import BenchmarkSpec, discover, load_spec
+from marlib.evaluation.llm_judge import judge_model
+from marlib.reporting import render_summary
 from marlib.log import logger
 from marlib.retriever import Retriever, RetrieverSettings
 from marlib.runner import run_system_on_benchmark, save_results
@@ -41,8 +43,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--benchmark",
-        default="financebench",
-        help=f"Benchmark (discovered from --data-dir). Available: {available}",
+        nargs="+",
+        default=["financebench"],
+        help="Benchmark(s) to run, each in turn (like --systems takes several). "
+        f"Discovered from --data-dir. Available: {available}",
     )
     parser.add_argument(
         "--model", default="openai/gpt-4o-mini", help="LLM model identifier."
@@ -58,6 +62,13 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Cap on number of questions (default: full set).",
+    )
+    parser.add_argument(
+        "--repeats",
+        type=int,
+        default=1,
+        help="Run the whole (benchmark x system) grid this many times; the final "
+        "summary table reports mean +/- std over repeats (default: 1).",
     )
     parser.add_argument(
         "--generation-mode",
@@ -114,28 +125,78 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    """Console-script entry point (`bench`)."""
+    """Console-script entry point (`bench`).
+
+    Runs each requested benchmark in turn — ``--benchmark`` accepts several, just
+    like ``--systems`` accepts several systems. Every benchmark gets its own
+    retriever, results dir, and provenance entry.
+    """
     parser = _build_parser()
     args = parser.parse_args()
 
-    try:
-        spec = load_spec(args.benchmark, args.data_dir)
-    except ValueError as e:
-        parser.error(str(e))
     available = discover_adapters(args.systems_dir)
     unknown = [s for s in args.systems if s not in available]
     if unknown:
         parser.error(f"Unknown system(s) {unknown}. Available: {available}")
 
+    # Resolve (and validate) every benchmark up front so a typo fails fast,
+    # before any heavy retriever load or model call.
+    specs: list[BenchmarkSpec] = []
+    for name in args.benchmark:
+        try:
+            specs.append(load_spec(name, args.data_dir))
+        except ValueError as e:
+            parser.error(str(e))
+
+    # Run the grid `--repeats` times, collecting each successful system run so the
+    # final table can report mean +/- std over repeats. Isolate each benchmark: a
+    # crash in one (e.g. retriever/index load) is logged and skipped so the rest of
+    # the grid still runs.
+    collected: dict[tuple[str, str], list[SystemResults]] = {}
+    failed_benchmarks: list[str] = []
+    for rep in range(args.repeats):
+        if args.repeats > 1:
+            logger.info(f"=== repeat {rep + 1}/{args.repeats} ===")
+        for spec in specs:
+            try:
+                results = _run_benchmark(spec, args, repeat=rep)
+            except Exception as e:
+                logger.error(f"Benchmark '{spec.name}' failed, skipping: {e}")
+                failed_benchmarks.append(f"{spec.name} (repeat {rep + 1})")
+                continue
+            for r in results:
+                collected.setdefault((r.system_name, r.benchmark), []).append(r)
+    if failed_benchmarks:
+        logger.warning(
+            f"{len(failed_benchmarks)} benchmark run(s) failed: {failed_benchmarks}"
+        )
+
+    render_summary(
+        collected,
+        benchmarks=[spec.name for spec in specs],
+        repeats=args.repeats,
+        model=args.model,
+        judge_model=judge_model(),
+    )
+
+
+def _run_benchmark(
+    spec: BenchmarkSpec, args: argparse.Namespace, repeat: int = 0
+) -> list[SystemResults]:
+    """Run all requested systems on one benchmark and save results + provenance.
+
+    Returns the successful ``SystemResults`` (failed systems are skipped), so the
+    caller can aggregate them across repeats into the summary table.
+    """
     # Unique run id avoids collisions between concurrent runs on one machine.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_id = f"{timestamp}_{args.benchmark}_{uuid4().hex[:6]}"
+    run_id = f"{timestamp}_{spec.name}_{uuid4().hex[:6]}"
     out_dir = args.results_dir / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(
         f"Starting run {run_id}",
-        benchmark=args.benchmark,
+        benchmark=spec.name,
         model=args.model,
         systems=args.systems,
         note=args.note or None,
@@ -174,24 +235,35 @@ def main() -> None:
 
     all_results: list[SystemResults] = []
     summaries: list[dict] = []
+    failed_systems: list[str] = []
 
     for system_name in args.systems:
         logger.info(f"Running system: {system_name}")
-        adapter = get_adapter_class(system_name)(
-            retriever=retriever, model=args.model, **adapter_kwargs
-        )
-        adapter.set_benchmark_context(args.benchmark, spec.description, sample_qs)
+        # Isolate each system: an adapter that fails to build or crashes mid-run
+        # is logged and recorded, but the remaining systems still run.
+        try:
+            adapter = get_adapter_class(system_name)(
+                retriever=retriever, model=args.model, **adapter_kwargs
+            )
+            adapter.set_benchmark_context(spec.name, spec.description, sample_qs)
 
-        results = run_system_on_benchmark(
-            adapter=adapter,
-            questions=questions,
-            benchmark_name=args.benchmark,
-            model=args.model,
-            metrics=spec.metrics,
-        )
+            results = run_system_on_benchmark(
+                adapter=adapter,
+                questions=questions,
+                benchmark_name=spec.name,
+                model=args.model,
+                metrics=spec.metrics,
+            )
+        except Exception as e:
+            logger.error(
+                f"System '{system_name}' on '{spec.name}' failed, skipping: {e}"
+            )
+            failed_systems.append(system_name)
+            summaries.append({"system": system_name, "error": str(e)})
+            continue
 
         logger.success(
-            f"Results for {system_name}/{args.benchmark}",
+            f"Results for {system_name}/{spec.name}",
             **{k: round(v, 3) for k, v in results.avg_metrics.items()},
             tokens_per_q=round(results.avg_tokens_per_question),
             prompt_tokens_per_q=round(results.avg_prompt_tokens_per_question),
@@ -212,10 +284,12 @@ def main() -> None:
         )
 
     params = {
-        "benchmark": args.benchmark,
+        "benchmark": spec.name,
         "model": args.model,
         "systems": args.systems,
         "sample_n": args.sample_n,
+        "repeat": repeat,
+        "judge_model": judge_model(),
         "generation_mode": args.generation_mode,
         "retrieve_top_k": settings.retrieve_top_k,
         "rerank_top_k": settings.rerank_top_k,
@@ -226,6 +300,10 @@ def main() -> None:
         "systems_dir": str(args.systems_dir),
         "metrics": list(spec.metrics),
     }
+    if failed_systems:
+        logger.warning(
+            f"{spec.name}: {len(failed_systems)} system(s) failed: {failed_systems}"
+        )
     run_meta = {
         "run_id": run_id,
         "timestamp": timestamp,
@@ -233,6 +311,7 @@ def main() -> None:
         "git_sha": _git_sha(),
         "note": args.note,
         "params": params,
+        "failed_systems": failed_systems,
         "summaries": summaries,
     }
     with open(out_dir / "run_meta.json", "w") as f:
@@ -242,7 +321,7 @@ def main() -> None:
     index_entry = {
         "run_id": run_id,
         "dir": str(out_dir),
-        "benchmark": args.benchmark,
+        "benchmark": spec.name,
         "model": args.model,
         "systems": args.systems,
         "note": args.note,
@@ -258,6 +337,7 @@ def main() -> None:
         results_dir=str(out_dir),
         history_index=str(args.results_dir / "runs.jsonl"),
     )
+    return all_results
 
 
 if __name__ == "__main__":

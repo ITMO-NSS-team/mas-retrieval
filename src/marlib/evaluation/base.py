@@ -24,6 +24,10 @@ class EvalContext:
     model: str = ""
     retrieved_doc_ids: list[str] = field(default_factory=list)
     gold_doc_ids: list[str] = field(default_factory=list)
+    # Mutable sink for LLM-judge token usage ("prompt"/"completion" keys). The
+    # dataclass is frozen, but mutating the dict's contents is allowed; a metric
+    # (the judge) fills it so the runner can record the judge's token cost.
+    judge_usage: dict[str, int] | None = None
 
 
 # A metric returns ``None`` when it does not apply to this question (e.g.

@@ -45,6 +45,7 @@ def run_system_on_benchmark(
                 if tc.tool_name in RETRIEVAL_TOOLS
                 for doc_id in tc.results
             ]
+            judge_usage: dict[str, int] = {"prompt": 0, "completion": 0}
             ctx = EvalContext(
                 question=question_text,
                 predicted=predicted_answer,
@@ -52,6 +53,7 @@ def run_system_on_benchmark(
                 model=model,
                 retrieved_doc_ids=retrieved,
                 gold_doc_ids=q.get("gold_doc_ids", []),
+                judge_usage=judge_usage,
             )
             for name in metrics:
                 try:
@@ -62,6 +64,9 @@ def run_system_on_benchmark(
                 if score is not None:
                     log.metrics[name] = score
 
+            # Record the judge's token spend (filled in by the llm_accuracy metric).
+            log.judge_prompt_tokens = judge_usage["prompt"]
+            log.judge_completion_tokens = judge_usage["completion"]
             question_logs.append(log)
             if log.error:
                 results.failed_questions += 1

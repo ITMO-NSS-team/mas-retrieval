@@ -49,6 +49,13 @@ class QuestionLog(BaseModel):
     total_tokens: int = Field(
         default=0, description="Total tokens (prompt + completion)"
     )
+
+    judge_prompt_tokens: int = Field(
+        default=0, description="LLM-as-judge prompt tokens spent scoring this question"
+    )
+    judge_completion_tokens: int = Field(
+        default=0, description="LLM-as-judge completion tokens for this question"
+    )
     total_latency_ms: float = Field(
         default=0.0, description="Total execution time in milliseconds"
     )
