@@ -27,6 +27,12 @@ class MultiAgentSystem:
         self.listeners = {
             s["state_id"]: s.get("listener", []) for s in states_json["states"]
         }
+        # The FSM may be cyclic (e.g. Calculator -> Reranker -> Calculator); if it
+        # hits the transition budget mid-loop we route here to compose an answer
+        # instead of returning a non-final agent's raw control tokens.
+        self._final_state: dict[str, Any] | None = next(
+            (s for s in states_json["states"] if s.get("is_final")), None
+        )
         self._tool_executor = tool_executor
         self._model = model
         self._base_url = base_url
@@ -124,6 +130,37 @@ class MultiAgentSystem:
                 return t["to_state"]
         return None
 
+    # ── Forced finalization ────────────────────────────────────
+
+    def _compose_final_answer(self, context: str) -> str:
+        """Force the final-state agent to answer from the context gathered so far.
+
+        Called when the FSM exhausts its transition budget without reaching the
+        final state (e.g. a Calculator<->Reranker loop). The final agent's LLM
+        already carries the conversation history (initial query broadcast +
+        listener messages), so even a short context yields a grounded answer
+        instead of an empty/control-token output.
+        """
+        if self._final_state is None:
+            return self._extract_info(context)
+        llm = self.llms[self._final_state["agent_id"]]
+        instruction = (
+            self._final_state.get("instruction", "")
+            + "\nThe transition budget is exhausted. Using ALL information "
+            "gathered so far in this conversation, compile and submit the FINAL "
+            "answer to the user's question NOW. Do not request more data or "
+            "transition; output only the answer."
+            + "\n\nLatest context from the previous step:\n"
+            + (context or "")
+        )
+        output = llm.chat(instruction)
+        if "<|submit|>" in output:
+            try:
+                return output.split("<|submit|>")[1].strip()
+            except IndexError:
+                return output
+        return output
+
     # ── Agent execution ────────────────────────────────────────
 
     def _run_agent(
@@ -214,6 +251,11 @@ class MultiAgentSystem:
             if next_state_id:
                 transition_count += 1
                 if transition_count >= max_transitions:
+                    # Budget exhausted mid-flow: don't return a non-final agent's
+                    # raw output (often only control tokens -> empty answer);
+                    # force the final agent to compile an answer.
+                    if not state["is_final"]:
+                        return self._compose_final_answer(self._extract_info(output))
                     return output
 
                 info = self._extract_info(output)
@@ -253,6 +295,10 @@ class MultiAgentSystem:
                     transition_count,
                 )
 
+        # No (further) transition available and we never reached the final state:
+        # compile an answer rather than leaking the current agent's raw output.
+        if not state["is_final"]:
+            return self._compose_final_answer(self._extract_info(output))
         return self._extract_info(output)
 
     # ── Public entry point ─────────────────────────────────────
