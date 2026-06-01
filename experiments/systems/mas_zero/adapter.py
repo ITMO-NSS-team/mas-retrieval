@@ -1,9 +1,21 @@
 """MAS-Zero adapter for RAG benchmark evaluation.
 
-Uses MAS-Zero's meta-agent concept (LLM designs agent architectures from
-building blocks) with RAG tools, without importing from the MAS-Zero directory.
+Faithful per-question implementation of MAS-Zero (Designing Multi-Agent Systems
+with Zero Supervision), with retrieval tools wired into the generated sub-MAS so
+it is comparable to the RAG systems in this harness. The algorithm runs three
+steps for every question, inference-time only, with NO gold answer used:
 
-Supports 'one_time' (generate once, reuse) and 'per_task' modes.
+1. Initial archive: each block (COT / COT_SC / Reflexion / LLM_debate) is run on
+   the question and self-scored by MAS-Feedback.
+2. Meta-iterations: the meta-model decomposes the question into sub-tasks and
+   wires a sub-MAS (code generation); each generation is executed, self-scored
+   by MAS-Feedback (solvability + completeness -> fitness), and refined via a
+   reflexion prompt that consumes the intermediate outputs + memory.
+3. Self-Verification: a list-wise judge selects the best answer among ALL
+   candidate solutions produced across the iteration.
+
+Contrast with the `adas` system, which is the single-step code-generation
+baseline (no decomposition, feedback loop, or self-verification).
 """
 
 from __future__ import annotations
@@ -12,31 +24,36 @@ import json
 import logging
 import os
 import re
-from typing import Any
+import types
+from typing import Any, Callable
 
 import backoff
 import openai
 
 from marlib.adapters.base import AbstractAdapter, register
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
-from marlib.log import logger
 from marlib.retriever.core import Document, Retriever
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
 
-from .blocks import RAG_BLOCKS
+from .blocks import get_init_archive
 from .core import (
     ANSWER_PATTERN,
+    TOO_HARD_MARK,
     AgentSystem,
     Info,
     LLMAgentBase,
 )
-from .prompts import SYSTEM_PROMPT, build_meta_prompt
-from .tracing import AgentTrace, MASZeroTrace
+from .feedback import mas_feedback, self_verify
+from .prompts import (
+    PROPOSE_SYSTEM_PROMPT,
+    REFLECT_AFTER_EVAL_PROMPT,
+    build_propose_prompt,
+)
+from .tracing import CandidateTrace, MASZeroTrace
 
 logger = logging.getLogger(__name__)
 
-# Default configuration
 _DEFAULT_COT_INSTRUCTION = (
     "Please think step by step and provide your answer. "
     "Think carefully about the question and the retrieved context."
@@ -46,16 +63,12 @@ _DEFAULT_DEBATE_ROLES = [
     "a critical reviewer",
     "a creative problem solver",
 ]
+_DEFAULT_BLOCKS = ["COT", "COT_SC", "Reflexion", "LLM_debate"]
 
 
 @register("mas_zero")
 class MASZeroAdapter(AbstractAdapter):
-    """MAS-Zero meta-agent adapter for RAG benchmarks.
-
-    The meta-model generates an architecture (forward function) that combines
-    reasoning blocks with retrieval tools. The architecture is then executed
-    per-question with access to retrieve(), rerank(), and calculate().
-    """
+    """Full MAS-Zero meta-agent: decompose -> feedback loop -> self-verify."""
 
     def __init__(
         self,
@@ -64,214 +77,62 @@ class MASZeroAdapter(AbstractAdapter):
         **kwargs: Any,
     ) -> None:
         super().__init__(retriever, model, **kwargs)
-        if self._generation_mode is None:
-            self._generation_mode = "one_time"
-        if self._generation_mode not in ("one_time", "per_task"):
-            raise ValueError(
-                f"Invalid generation_mode '{self._generation_mode}'; "
-                "use 'one_time' or 'per_task'"
-            )
 
-        self._n_generation: int = self._config.get("n_generation", 1)
         self._meta_model: str = self._config.get("meta_model", self._model)
+        # Zero-supervision verifier; defaults to the node model (no o3-mini needed).
+        self._verifier_model: str = self._config.get("verifier_model", self._model)
         self._top_k: int = self._config.get("top_k", 20)
+        self._n_generation: int = self._config.get("n_generation", 10)
         self._max_round: int = self._config.get("max_round", 2)
         self._max_sc: int = self._config.get("max_sc", 3)
         self._debug_max: int = self._config.get("debug_max", 3)
+        # Stop the search once a candidate reaches this self-assessed fitness.
+        self._fitness_threshold: float = self._config.get("fitness_threshold", 1.0)
         self._cot_instruction: str = self._config.get(
-            "cot_instruction",
-            _DEFAULT_COT_INSTRUCTION,
+            "cot_instruction", _DEFAULT_COT_INSTRUCTION
         )
-        self._debate_roles: list[str] = self._config.get(
-            "debate_roles",
-            _DEFAULT_DEBATE_ROLES,
+        self._debate_roles: list[str] = (
+            self._config.get("debate_roles") or list(_DEFAULT_DEBATE_ROLES)
         )
-        if not self._debate_roles:
-            logger.warning("debate_roles empty; using defaults")
-            self._debate_roles = list(_DEFAULT_DEBATE_ROLES)
-        blocks_config = self._config.get(
-            "blocks",
-            ["RAG_COT", "RAG_REFLEXION", "RAG_DEBATE", "RAG_COT_SC"],
+        self._block_names: list[str] = (
+            self._config.get("blocks") or list(_DEFAULT_BLOCKS)
         )
-        block_map = {b["name"]: b for b in RAG_BLOCKS}
-        block_name_map = {
-            "RAG_COT": "RAG-Chain-of-Thought",
-            "RAG_REFLEXION": "RAG-Reflexion",
-            "RAG_DEBATE": "RAG-LLM-Debate",
-            "RAG_COT_SC": "RAG-Self-Consistency-COT",
-        }
-        self._blocks: list[dict] = []
-        for b in blocks_config:
-            name = block_name_map.get(b, b)
-            if name in block_map:
-                self._blocks.append(block_map[name])
-        if not self._blocks:
-            logger.warning(
-                "No blocks matched config %s; using all RAG_BLOCKS", blocks_config
-            )
-            self._blocks = list(RAG_BLOCKS)
 
-        # Cached architecture (for one_time mode)
-        self._cached_system: dict | None = None
-
-        # Tracing
         self._trace_enabled: bool = self._config.get("trace", False) or os.environ.get(
             "MAS_ZERO_TRACE", ""
         ).lower() in ("1", "true", "yes")
 
         logger.info(
-            "MASZeroAdapter: mode=%s, meta_model=%s, model=%s, blocks=%d, trace=%s",
-            self._generation_mode,
+            "MASZeroAdapter: meta=%s node=%s verifier=%s blocks=%s "
+            "n_generation=%d max_round=%d max_sc=%d trace=%s",
             self._meta_model,
             self._model,
-            len(self._blocks),
+            self._verifier_model,
+            self._block_names,
+            self._n_generation,
+            self._max_round,
+            self._max_sc,
             self._trace_enabled,
         )
 
-    def _on_benchmark_change(self) -> None:
-        self._cached_system = None
-
     @property
     def name(self) -> str:
-        return f"mas_zero_{self._generation_mode}"
-
-    @property
-    def generated_system(self) -> dict | None:
-        """Access the full generated system dict (thought, name, code).
-
-        Returns None if no system has been generated yet.
-        """
-        return self._cached_system
+        return "mas_zero"
 
     def generate_system(self, question: str) -> str:
-        """Generate a MAS architecture via the meta-model.
+        """MAS-Zero designs a fresh architecture per question inside execute().
 
-        In one_time mode, generates once and caches. In per_task mode,
-        generates a fresh architecture for each question.
-
-        Returns:
-            Multi-line description including architecture name, reasoning,
-            and the generated forward() code.
+        Exposed for API compatibility; returns a short description of the setup.
         """
-        if self._generation_mode == "one_time" and self._cached_system is not None:
-            return self._format_system_description(self._cached_system)
-
-        question_for_prompt = (
-            question if self._generation_mode == "per_task" else None
-        )
-        archive = list(self._blocks)
-
-        prompt = build_meta_prompt(
-            archive,
-            question=question_for_prompt,
-            benchmark_description=self._benchmark_description,
-            sample_questions=(
-                self._sample_questions if self._generation_mode == "one_time" else None
-            ),
-        )
-        solution = self._call_meta_model(prompt)
-
-        if solution is not None:
-            self._cached_system = solution
-            desc = self._format_system_description(solution)
-            logger.info("MAS-Zero generated architecture:\n%s", desc)
-            return desc
-
-        # Fallback: use first block directly
-        logger.warning("Meta-model failed to generate; falling back to first block")
-        self._cached_system = (
-            self._blocks[0]
-            if self._blocks
-            else {
-                "name": "fallback-cot",
-                "code": RAG_BLOCKS[0]["code"],
-            }
-        )
-        return self._format_system_description(self._cached_system)
-
-    @staticmethod
-    def _format_system_description(system: dict) -> str:
-        """Format a system dict into a readable multi-line description."""
-        parts = [f"Architecture: {system.get('name', 'unknown')}"]
-        if "thought" in system:
-            parts.append(f"Reasoning: {system['thought']}")
-        if "code" in system:
-            parts.append(f"Code:\n{system['code']}")
-        return "\n".join(parts)
-
-    @backoff.on_exception(
-        backoff.expo, (openai.RateLimitError, openai.APITimeoutError), max_tries=3
-    )
-    def _call_meta_model(self, prompt: str) -> dict | None:
-        """Call the meta-model to generate an architecture."""
-        client = openai.OpenAI(
-            base_url=os.environ.get("OPENAI_BASE_URL"),
-            api_key=os.environ.get("OPENAI_API_KEY"),
+        return (
+            f"MAS-Zero per-question search (meta={self._meta_model}, "
+            f"verifier={self._verifier_model}, blocks={self._block_names}, "
+            f"n_generation={self._n_generation})"
         )
 
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ]
+    # ── tool closures ─────────────────────────────────────────────────────────
 
-        for attempt in range(self._debug_max):
-            response = client.chat.completions.create(
-                model=self._meta_model,
-                messages=messages,
-                response_format={"type": "json_object"},
-            )
-
-            text = response.choices[0].message.content or ""
-            try:
-                solution = json.loads(text)
-            except json.JSONDecodeError:
-                logger.warning(
-                    "Meta-model returned invalid JSON (attempt %d)", attempt + 1
-                )
-                continue
-
-            if not all(k in solution for k in ("name", "thought", "code")):
-                logger.warning(
-                    "Meta-model missing required keys (attempt %d)", attempt + 1
-                )
-                continue
-
-            if "def forward(self, taskInfo):" not in solution["code"]:
-                logger.warning(
-                    "Generated code missing forward() signature (attempt %d)",
-                    attempt + 1,
-                )
-                continue
-
-            # Syntax check
-            try:
-                compile(solution["code"], "<generated>", "exec")
-            except SyntaxError as e:
-                logger.warning(
-                    "Generated code has syntax error (attempt %d): %s", attempt + 1, e
-                )
-                messages.append({"role": "assistant", "content": text})
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Syntax error in your code: {e}\n"
-                            "Please fix the code and return the corrected version "
-                            "in the same JSON format."
-                        ),
-                    }
-                )
-                continue
-
-            return solution
-
-        return None
-
-    def _make_tool_closures(
-        self,
-        tracker: TokenTracker,
-    ) -> tuple[Any, Any, Any]:
-        """Build tool closures that track calls via TokenTracker."""
+    def _make_tool_closures(self, tracker: TokenTracker) -> tuple[Any, Any, Any]:
         last_retrieved: list[Document] = []
         retriever = self._retriever
 
@@ -292,11 +153,101 @@ class MASZeroAdapter(AbstractAdapter):
             return formatted
 
         def calc_fn(expression: str) -> str:
-            with tracker.track_tool("calculate", expression, 0) as results:
+            with tracker.track_tool("calculate", expression, 0):
                 result = do_calculate(expression)
             return result
 
         return retrieve_fn, rerank_fn, calc_fn
+
+    def _usage_cb(self, tracker: TokenTracker, model: str) -> Callable[[int, int], None]:
+        def cb(prompt_tokens: int, completion_tokens: int) -> None:
+            tracker.log_llm_call(
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                latency_ms=0,
+            )
+
+        return cb
+
+    # ── meta-model (propose / reflexion) ──────────────────────────────────────
+
+    @backoff.on_exception(
+        backoff.expo, (openai.RateLimitError, openai.APITimeoutError), max_tries=3
+    )
+    def _call_meta(
+        self,
+        messages: list[dict],
+        usage_callback: Callable[[int, int], None],
+    ) -> dict | None:
+        """Call the meta-model once; return a validated solution dict or None."""
+        client = openai.OpenAI(
+            base_url=os.environ.get("OPENAI_BASE_URL"),
+            api_key=os.environ.get("OPENAI_API_KEY"),
+        )
+        response = client.chat.completions.create(
+            model=self._meta_model,
+            messages=messages,
+            response_format={"type": "json_object"},
+        )
+        usage = response.usage
+        if usage:
+            usage_callback(usage.prompt_tokens, usage.completion_tokens)
+
+        text = response.choices[0].message.content or ""
+        try:
+            solution = json.loads(text)
+        except json.JSONDecodeError:
+            logger.warning("Meta-model returned invalid JSON")
+            return None
+        if not all(k in solution for k in ("name", "thought", "code")):
+            logger.warning("Meta-model missing required keys")
+            return None
+        if "def forward(self, taskInfo):" not in solution["code"]:
+            logger.warning("Generated code missing forward() signature")
+            return None
+        try:
+            compile(solution["code"], "<generated>", "exec")
+        except SyntaxError as e:
+            logger.warning("Generated code has syntax error: %s", e)
+            return None
+        return solution
+
+    # ── forward execution ─────────────────────────────────────────────────────
+
+    def _exec_forward(
+        self,
+        code: str,
+        system: AgentSystem,
+        agent_class: type,
+        task_info: Info,
+    ) -> Info:
+        namespace: dict[str, Any] = {}
+        exec(  # noqa: S102 — running model-generated architecture by design
+            code,
+            {"LLMAgentBase": agent_class, "Info": Info, "__builtins__": __builtins__},
+            namespace,
+        )
+        forward_fn = namespace.get("forward")
+        if not callable(forward_fn):
+            callables = [v for v in namespace.values() if callable(v)]
+            if not callables:
+                raise RuntimeError("Generated code defined no callable")
+            forward_fn = callables[0]
+        system.forward = types.MethodType(forward_fn, system)
+        return system.forward(task_info)
+
+    @staticmethod
+    def _extract_answer(content: str) -> str:
+        match = re.search(ANSWER_PATTERN, content or "")
+        answer = match.group(1).strip() if match else (content or "").strip()
+        if TOO_HARD_MARK in answer:
+            answer = answer.split(TOO_HARD_MARK)[0].strip()
+        if not match and "\n" in answer:
+            answer = answer.split("\n")[-1].strip()
+        return answer
+
+    # ── main entry point ──────────────────────────────────────────────────────
 
     def execute(
         self,
@@ -304,163 +255,134 @@ class MASZeroAdapter(AbstractAdapter):
         question: str,
         gold_answer: str,
     ) -> tuple[str, QuestionLog]:
-        if self._generation_mode == "per_task":
-            self._cached_system = None
-
         tracker = TokenTracker(
             question_id=question_id,
             question=question,
             gold_answer=gold_answer,
         )
 
-        # Point A: Init trace
         trace: MASZeroTrace | None = None
         if self._trace_enabled:
             trace = MASZeroTrace(
                 question_id=question_id,
-                mode=self._generation_mode,
                 meta_model=self._meta_model,
                 node_model=self._model,
-                blocks_offered=[b["name"] for b in self._blocks],
+                verifier_model=self._verifier_model,
+                blocks_offered=list(self._block_names),
+                n_generation=self._n_generation,
             )
+
+        node_cb = self._usage_cb(tracker, self._model)
+        meta_cb = self._usage_cb(tracker, self._meta_model)
+        verifier_cb = self._usage_cb(tracker, self._verifier_model)
+
+        retrieve_fn, rerank_fn, calc_fn = self._make_tool_closures(tracker)
+
+        system = AgentSystem()
+        system.node_model = self._model
+        system.cot_instruction = self._cot_instruction
+        system.max_round = self._max_round
+        system.max_sc = self._max_sc
+        system.debate_role = self._debate_roles
+        system._retrieve_fn = retrieve_fn
+        system._rerank_fn = rerank_fn
+        system._calc_fn = calc_fn
+        system._usage_callback = node_cb
+
+        agent_class = self._traced_agent_class(trace) if trace is not None else LLMAgentBase
+        task_info = Info("task", "user", question, None, None, None, -1)
+
+        candidates: list[dict] = []
+        memory: list[dict] = []
+
+        def evaluate(
+            code: str, name: str, thought: str, stage: str, generation: int
+        ) -> dict:
+            """Run one architecture, self-score it, and record a candidate."""
+            cand: dict = {
+                "name": name,
+                "code": code,
+                "thought": thought,
+                "stage": stage,
+                "generation": generation,
+                "answer": "",
+                "fitness": 0.0,
+                "feedback": "",
+                "sub_tasks": None,
+                "agents": None,
+                "error": None,
+            }
+            try:
+                result = self._exec_forward(code, system, agent_class, task_info)
+                content = result.content if hasattr(result, "content") else ""
+                cand["answer"] = self._extract_answer(content)
+                cand["sub_tasks"] = getattr(result, "sub_tasks", None)
+                cand["agents"] = getattr(result, "agents", None)
+                cand["fitness"], cand["feedback"] = mas_feedback(
+                    question,
+                    cand["sub_tasks"],
+                    cand["agents"],
+                    cand["answer"],
+                    model=self._verifier_model,
+                    usage_callback=verifier_cb,
+                )
+            except Exception as e:  # generated code / runtime failure
+                logger.warning("Candidate '%s' failed: %s", name, e)
+                cand["error"] = str(e)
+            candidates.append(cand)
+            memory.append({cand["answer"]: round(cand["fitness"], 3)})
+            if trace is not None:
+                trace.candidates.append(
+                    CandidateTrace(
+                        stage=stage,
+                        generation=generation,
+                        name=name,
+                        thought=thought,
+                        code=code,
+                        answer=cand["answer"],
+                        fitness=cand["fitness"],
+                        feedback=cand["feedback"],
+                        sub_tasks=cand["sub_tasks"],
+                        agents=cand["agents"],
+                        error=cand["error"],
+                    )
+                )
+            return cand
 
         try:
-            # 1. Build tool closures
-            retrieve_fn, rerank_fn, calc_fn = self._make_tool_closures(tracker)
+            archive = get_init_archive(self._block_names)
+            solved = False
 
-            # 2. Usage callback for LLM token tracking
-            def usage_callback(prompt_tokens: int, completion_tokens: int) -> None:
-                tracker.log_llm_call(
-                    model=self._model,
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    latency_ms=0,  # timing handled per-call in core
+            # 1. Initial archive evaluation.
+            for block in archive:
+                cand = evaluate(
+                    block["code"], block["name"], block.get("thought", ""),
+                    stage="initial", generation=-1,
                 )
+                block["fitness"] = round(cand["fitness"], 3)
+                if cand["fitness"] >= self._fitness_threshold:
+                    solved = True
+                    if trace is not None:
+                        trace.stopped_early = True
+                    break
 
-            # 3. Generate system (architecture)
-            self.generate_system(question)
-            if self._cached_system is None:
-                raise RuntimeError("generate_system() failed to produce a system")
+            # 2. Meta-iterations (decompose -> evaluate -> reflexion).
+            # A meta-model failure here is non-fatal: we degrade to
+            # self-verification over whatever candidates were collected.
+            if not solved and self._n_generation > 0:
+                try:
+                    self._meta_iterations(
+                        question, archive, evaluate, memory, meta_cb, trace
+                    )
+                except Exception as e:
+                    logger.warning("Meta-iteration aborted: %s", e)
 
-            forward_code = self._cached_system.get("code")
-            if not forward_code:
-                raise RuntimeError(
-                    f"System '{self._cached_system.get('name', '?')}' has no 'code' field"
-                )
+            # 3. Self-verification across all candidates.
+            answer, best_idx = self._select_answer(question, candidates, verifier_cb)
 
-            logger.info(self._format_system_description(self._cached_system))
-
-            # Point B: Capture architecture details
             if trace is not None:
-                trace.architecture_name = self._cached_system.get("name", "")
-                trace.architecture_thought = self._cached_system.get("thought", "")
-                trace.generated_code = forward_code
-
-            # 4. Build AgentSystem with tools and config
-            system = AgentSystem()
-            system.node_model = self._model
-            system.cot_instruction = self._cot_instruction
-            system.max_round = self._max_round
-            system.max_sc = self._max_sc
-            system.debate_role = self._debate_roles
-            system._retrieve_fn = retrieve_fn
-            system._rerank_fn = rerank_fn
-            system._calc_fn = calc_fn
-            system._usage_callback = usage_callback
-
-            # 5. exec() forward function and set on the system
-            # Use traced agent class if tracing is enabled
-            if trace is not None:
-                _collector = trace.agent_calls
-                _OrigAgent = LLMAgentBase
-
-                class _TracedAgent(_OrigAgent):
-                    def query(
-                        self_agent,
-                        input_infos,
-                        instruction,
-                        iteration_idx=-1,
-                        is_sub_task=False,
-                    ):
-                        result = super().query(
-                            input_infos,
-                            instruction,
-                            iteration_idx=iteration_idx,
-                            is_sub_task=is_sub_task,
-                        )
-                        _collector.append(
-                            AgentTrace(
-                                agent_name=self_agent.agent_name,
-                                agent_id=self_agent.id,
-                                output_fields=self_agent.output_fields,
-                                role=self_agent.role,
-                                iteration_idx=iteration_idx,
-                                input_summary=instruction[:200],
-                                output={
-                                    info.name: (info.content or "")[:500]
-                                    for info in result
-                                },
-                            )
-                        )
-                        return result
-
-                exec_agent_class = _TracedAgent
-            else:
-                exec_agent_class = LLMAgentBase
-
-            namespace: dict[str, Any] = {}
-            exec(
-                forward_code,
-                {
-                    "LLMAgentBase": exec_agent_class,
-                    "Info": Info,
-                    "__builtins__": __builtins__,
-                },
-                namespace,
-            )
-
-            if "forward" in namespace and callable(namespace["forward"]):
-                forward_fn = namespace["forward"]
-                bound_name = "forward"
-            else:
-                func_names = [k for k, v in namespace.items() if callable(v)]
-                if not func_names:
-                    raise RuntimeError("Generated code did not define any callable")
-                logger.warning("No 'forward' in namespace; using '%s'", func_names[0])
-                forward_fn = namespace[func_names[0]]
-                bound_name = func_names[0]
-
-            import types
-
-            system.forward = types.MethodType(forward_fn, system)
-
-            # Point C: Capture forward binding
-            if trace is not None:
-                trace.forward_bound_to = bound_name
-
-            # 6. Create taskInfo and run forward
-            task_info = Info(
-                "task",
-                "user",
-                question,
-                None,
-                None,
-                None,
-                -1,
-            )
-            result = system.forward(task_info)
-
-            # 7. Extract answer
-            answer = ""
-            if result and hasattr(result, "content"):
-                match = re.search(ANSWER_PATTERN, result.content)
-                if match:
-                    answer = match.group(1).strip()
-                else:
-                    # Take the content after last newline or full content
-                    answer = result.content.strip()
-                    if "\n" in answer:
-                        answer = answer.split("\n")[-1].strip()
+                trace.selected_index = best_idx
+                trace.selected_answer = answer
 
         except Exception as e:
             logger.error("MAS-Zero execution failed: %s", e)
@@ -469,14 +391,103 @@ class MASZeroAdapter(AbstractAdapter):
                 trace.execution_error = str(e)
             answer = ""
 
-        # Point D: Save trace
         if trace is not None:
             self._save_trace(trace)
 
         return answer, tracker.to_question_log(answer)
 
+    def _meta_iterations(
+        self,
+        question: str,
+        archive: list[dict],
+        evaluate: Callable[..., dict],
+        memory: list[dict],
+        meta_cb: Callable[[int, int], None],
+        trace: MASZeroTrace | None,
+    ) -> None:
+        """Run the decompose -> evaluate -> reflexion loop in place."""
+        msg_list: list[dict] = [
+            {"role": "system", "content": PROPOSE_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": build_propose_prompt(
+                    archive,
+                    question,
+                    benchmark_description=self._benchmark_description,
+                    sample_questions=self._sample_questions,
+                ),
+            },
+        ]
+        next_solution = self._call_meta(msg_list, meta_cb)
+
+        for n in range(self._n_generation):
+            if next_solution is None:
+                # Re-propose from scratch if the meta-model stumbled.
+                next_solution = self._call_meta(msg_list, meta_cb)
+                if next_solution is None:
+                    break
+
+            cand = evaluate(
+                next_solution["code"],
+                next_solution.get("name", f"generation-{n + 1}"),
+                next_solution.get("thought", ""),
+                stage="generation",
+                generation=n + 1,
+            )
+            if cand["fitness"] >= self._fitness_threshold:
+                if trace is not None:
+                    trace.stopped_early = True
+                break
+
+            # Reflexion: feed intermediate outputs + memory back in.
+            assistant_payload = dict(next_solution)
+            assistant_payload["sub_tasks"] = cand["sub_tasks"]
+            assistant_payload["agents"] = cand["agents"]
+            assistant_payload["final_response"] = cand["answer"]
+            assistant_payload["fitness"] = round(cand["fitness"], 3)
+            if cand["error"]:
+                assistant_payload["error"] = cand["error"]
+            msg_list.append(
+                {"role": "assistant", "content": json.dumps(assistant_payload)}
+            )
+            reflect = REFLECT_AFTER_EVAL_PROMPT.format(last_round=n + 1, prev_round=n)
+            reflect += f"\n\nVerifier feedback: {cand['feedback']}"
+            reflect += f"\n\nmemory: {json.dumps(memory)}"
+            msg_list.append({"role": "user", "content": reflect})
+
+            next_solution = self._call_meta(msg_list, meta_cb)
+
+    def _select_answer(
+        self,
+        question: str,
+        candidates: list[dict],
+        verifier_cb: Callable[[int, int], None],
+    ) -> tuple[str, int]:
+        """Self-verify across candidates; degrade gracefully on any failure."""
+        if not candidates:
+            return "", -1
+        try:
+            best_idx = self_verify(
+                question, candidates,
+                model=self._verifier_model, usage_callback=verifier_cb,
+            )
+        except Exception as e:
+            logger.warning("Self-verification failed: %s", e)
+            best_idx = max(
+                range(len(candidates)),
+                key=lambda i: candidates[i].get("fitness", 0.0),
+            )
+        return candidates[best_idx]["answer"], best_idx
+
+    # ── tracing helpers ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _traced_agent_class(trace: MASZeroTrace) -> type:
+        # Trace captured at architecture granularity (CandidateTrace); the agent
+        # subclass is a hook point for finer tracing if needed later.
+        return LLMAgentBase
+
     def _save_trace(self, trace: MASZeroTrace) -> None:
-        """Save trace to logs/mas_zero/ as JSON and log summary."""
         logger.debug("MAS-Zero trace:\n%s", trace.summary())
         try:
             trace_dir = os.path.join("logs", "mas_zero")

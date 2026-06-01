@@ -1,14 +1,9 @@
-"""Self-contained MAS-Zero runtime.
+"""Self-contained ADAS runtime.
 
-Faithful extraction of MAS-Zero's LLMAgentBase / AgentSystem (search.py +
-code_archive.py), adapted to:
-- Use the OpenAI client directly (no global model_sampler_map / shared_vars)
-- Support a usage callback for token tracking
-- Provide retrieve/rerank/calculate tool methods on AgentSystem (RAG harness)
-
-This preserves the parts MAS-Zero's algorithm depends on that the ADAS baseline
-drops: the ``is_sub_task`` prompting path with the ``[TOO_HARD]`` self-report
-mechanism and the sub-task / agent bookkeeping fed back into MAS-Feedback.
+Minimal agent runtime (LLMAgentBase + AgentSystem) adapted to:
+- Use OpenAI client directly (no global model_sampler_map)
+- Support usage callbacks for token tracking
+- Provide retrieve/rerank/calculate methods on AgentSystem
 """
 
 from __future__ import annotations
@@ -16,7 +11,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import uuid
 from collections import namedtuple
 from typing import Any, Callable
@@ -32,23 +26,6 @@ Info = namedtuple(
 )
 
 ANSWER_PATTERN = r"(?i)Answer\s*:\s*([^\n]+)"
-TOO_HARD_MARK = "[TOO_HARD]"
-
-# Sub-task instruction suffix: agents must always give a best answer, but flag
-# under-specified / too-hard sub-tasks so MAS-Feedback can drive re-decomposition.
-_SUB_TASK_SUFFIX = (
-    "\n\nIf the question is too complicated or information is missing, you still "
-    "need to give your best answer but add (1) an additional mark "
-    f"{TOO_HARD_MARK} on the next line of your final answer and (2) an "
-    f"information request or decomposition suggestion on the next line after the "
-    f"{TOO_HARD_MARK} mark, in the 'answer' entry (for example: 300\\n"
-    f"{TOO_HARD_MARK}\\nSuggestion: ...), and justify why you think so in the "
-    "'thinking' entry. Otherwise answer normally."
-)
-
-_SUB_QUESTION_PATTERN = re.compile(
-    r"Given the above, answer the following question: \s*(.*?)\s*\n\n", re.DOTALL
-)
 
 
 def _pack_message(role: str, content: Any) -> dict[str, Any]:
@@ -56,9 +33,13 @@ def _pack_message(role: str, content: Any) -> dict[str, Any]:
 
 
 class LLMAgentBase:
-    """LLM agent that calls OpenAI directly and returns a list of Info.
+    """Simplified LLM agent that calls OpenAI directly.
 
-    Mirrors MAS-Zero's LLMAgentBase, including the ``is_sub_task`` prompt path.
+    Differences from MAS-Zero original:
+    - No global model_sampler_map; uses openai.OpenAI directly
+    - Constructor takes model/temperature explicitly
+    - Optional usage_callback(prompt_tokens, completion_tokens) for tracking
+    - JSON response format only
     """
 
     def __init__(
@@ -77,15 +58,6 @@ class LLMAgentBase:
         self.temperature = temperature
         self.usage_callback = usage_callback
         self.id = uuid.uuid4().hex[:8]
-
-    @staticmethod
-    def _extract_sub_question(prompt: list[dict] | None) -> str | None:
-        """Recover the sub-question header from a prior agent's prompt."""
-        if not prompt:
-            return None
-        content = prompt[-1].get("content", "")
-        match = _SUB_QUESTION_PATTERN.search(content)
-        return match.group(1) if match else None
 
     def generate_prompt(
         self,
@@ -112,39 +84,27 @@ class LLMAgentBase:
         system_prompt = f"You are a {self.role}.\n\n{format_inst}"
 
         input_infos_text = ""
-        prev_sub_question = ""
         for input_info in input_infos:
             if not isinstance(input_info, Info):
                 continue
-            field_name, author, content, prompt, _, _, iteration_idx = input_info
+            field_name, author, content, _prompt, _, _, iteration_idx = input_info
             if author == repr(self):
                 author += " (yourself)"
-
             if field_name == "task":
-                if is_sub_task:
-                    input_infos_text += (
-                        f"Related original question:\n\n{content}.\n\n"
-                        "Related sub-task questions and answers:\n\n"
-                    )
-                else:
-                    input_infos_text += f"{content}\n\n"
-                continue
-
-            header = f"{field_name} #{iteration_idx + 1}" if iteration_idx != -1 else field_name
-            sub_q = self._extract_sub_question(prompt) if is_sub_task else None
-            if sub_q and sub_q != prev_sub_question:
+                input_infos_text += f"{content}\n\n"
+            elif iteration_idx != -1:
                 input_infos_text += (
-                    f"### {sub_q}\n\n### {header} by {author}:\n{content}\n\n"
+                    f"### {field_name} #{iteration_idx + 1} by {author}:\n{content}\n\n"
                 )
-                prev_sub_question = sub_q
             else:
-                input_infos_text += f"### {header} by {author}:\n{content}\n\n"
+                input_infos_text += f"### {field_name} by {author}:\n{content}\n\n"
 
         if is_sub_task:
             prompt = (
                 input_infos_text
-                + f"Given the above, answer the following question: {instruction}"
-                + _SUB_TASK_SUFFIX
+                + f"Given the above, answer the following question: {instruction}\n\n"
+                "If the question is too complicated or information is missing, "
+                "you still need to give your best answer."
             )
         else:
             prompt = input_infos_text + instruction
@@ -158,13 +118,15 @@ class LLMAgentBase:
         iteration_idx: int = -1,
         is_sub_task: bool = False,
     ) -> list[Info]:
-        system_prompt, user_prompt = self.generate_prompt(
-            input_infos, instruction, is_sub_task=is_sub_task
+        system_prompt, prompt = self.generate_prompt(
+            input_infos,
+            instruction,
+            is_sub_task=is_sub_task,
         )
 
         messages = [
             _pack_message(role="system", content=system_prompt),
-            _pack_message(role="user", content=user_prompt),
+            _pack_message(role="user", content=prompt),
         ]
 
         response_json = _get_json_response(
@@ -235,6 +197,7 @@ def _get_json_response(
         except (json.JSONDecodeError, KeyError):
             pass
 
+    # Fallback: return empty fields
     logger.warning(
         "LLM failed to produce valid JSON with fields %s after 5 attempts (model=%s)",
         output_fields,
@@ -247,8 +210,8 @@ class AgentSystem:
     """Hosts the dynamically generated forward() function.
 
     Attributes set by the adapter before execution:
-        node_model, cot_instruction, max_round, max_sc, debate_role,
-        _usage_callback, and the retrieve/rerank/calc tool closures.
+        node_model, cot_instruction, max_round, max_sc, debate_role
+        retrieve_fn, rerank_fn, calc_fn  (tool closures)
     """
 
     def __init__(self) -> None:
@@ -260,7 +223,6 @@ class AgentSystem:
         self._retrieve_fn: Callable | None = None
         self._rerank_fn: Callable | None = None
         self._calc_fn: Callable | None = None
-        self._usage_callback: Callable[[int, int], None] | None = None
 
     def make_final_answer(
         self,
@@ -276,15 +238,41 @@ class AgentSystem:
 
         answer_content = answer if isinstance(answer, str) else answer.content
 
-        # MAS-Zero quirk: when only one extra list is passed it is `agents`.
         if agents is None and sub_tasks is not None:
             agents = sub_tasks
             sub_tasks = None
 
-        content = f"{thinking.content}\n\nAnswer:{answer_content}"
-        sub_tasks_str = "\n".join(sub_tasks) if sub_tasks else None
-        agents_str = "\n".join(agents) if agents else None
-        return Info(name, author, content, prompt, sub_tasks_str, agents_str, iteration_idx)
+        if sub_tasks is None and agents is None:
+            final = Info(
+                name,
+                author,
+                f"{thinking.content}\n\nAnswer:{answer_content}",
+                prompt,
+                None,
+                None,
+                iteration_idx,
+            )
+        elif agents is not None and sub_tasks is None:
+            final = Info(
+                name,
+                author,
+                f"{thinking.content}\n\nAnswer:{answer_content}",
+                prompt,
+                None,
+                "\n".join(agents),
+                iteration_idx,
+            )
+        else:
+            final = Info(
+                name,
+                author,
+                f"{thinking.content}\n\nAnswer:{answer_content}",
+                prompt,
+                "\n".join(sub_tasks),
+                "\n".join(agents),
+                iteration_idx,
+            )
+        return final
 
     # ── RAG tool methods (called by generated forward code) ──
 

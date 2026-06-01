@@ -21,6 +21,7 @@ wheels/
 
 uv.lock
 results/
+logs/
 .env
 
 .DS_Store
