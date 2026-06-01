@@ -7,15 +7,56 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from fedotmas import MAS, PipelineConfig
+from fedotmas import MAW, MAWConfig
 from fedotmas.mcp.registry import MCPServerConfig, StdioMCPServer
 from marlib.adapters.base import AbstractAdapter, register
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
 
 
+def _run_async(coro: Any) -> Any:
+    """Run *coro* on a fresh event loop, then drain background cleanup before
+    closing it.
+
+    We call this once per question. The ADK + LiteLLM/httpx stack leaves
+    keep-alive connection pools that close lazily via finalizers; with a bare
+    ``asyncio.run`` those finalizers fire ``loop.call_soon`` *after* the loop is
+    already closed, producing harmless but noisy ``RuntimeError: Event loop is
+    closed`` / "Task exception was never retrieved" teardown tracebacks. We (a)
+    install an exception handler that swallows exactly that error, and (b)
+    cancel + await any still-pending tasks so the pools close on a live loop.
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    def _ignore_loop_closed(loop: Any, context: dict[str, Any]) -> None:
+        exc = context.get("exception")
+        if isinstance(exc, RuntimeError) and "Event loop is closed" in str(exc):
+            return
+        loop.default_exception_handler(context)
+
+    loop.set_exception_handler(_ignore_loop_closed)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        try:
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True)
+                )
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except Exception:
+            pass
+        finally:
+            asyncio.set_event_loop(None)
+            loop.close()
+
+
 @register("fedotmas")
-class FedotMASAdapter(AbstractAdapter):
+class FedotMAWAdapter(AbstractAdapter):
     def __init__(
         self, retriever: Any, model: str = "gpt-4o-mini", **kwargs: Any
     ) -> None:
@@ -23,7 +64,7 @@ class FedotMASAdapter(AbstractAdapter):
         if self._generation_mode is None:
             self._generation_mode = "one_time"
 
-        self._cached_config: PipelineConfig | None = None
+        self._cached_config: MAWConfig | None = None
 
     def _on_benchmark_change(self) -> None:
         self._cached_config = None
@@ -63,12 +104,12 @@ class FedotMASAdapter(AbstractAdapter):
 
     async def _generate_config(
         self, question: str
-    ) -> tuple[PipelineConfig, MAS | None]:
+    ) -> tuple[MAWConfig, MAW | None]:
         if self._generation_mode == "one_time" and self._cached_config is not None:
             return self._cached_config, None
 
         registry = self._build_mcp_registry()
-        mas = MAS(
+        maw = MAW(
             meta_model=self._model, worker_models=[self._model], mcp_servers=registry
         )
 
@@ -77,15 +118,15 @@ class FedotMASAdapter(AbstractAdapter):
         else:
             task_description = question
 
-        config = await mas.generate_config(task_description)
+        config = await maw.generate_config(task_description)
 
         if self._generation_mode == "one_time":
             self._cached_config = config
 
-        return config, mas
+        return config, maw
 
     def generate_system(self, question: str) -> str:
-        config, _ = asyncio.run(self._generate_config(question))
+        config, _ = _run_async(self._generate_config(question))
         return config.model_dump_json(indent=2)
 
     def execute(
@@ -106,29 +147,29 @@ class FedotMASAdapter(AbstractAdapter):
         os.environ["MARLIB_DOCIDS_FILE"] = str(docids_file)
 
         try:
-            config, meta_mas = asyncio.run(self._generate_config(question))
+            config, meta_maw = _run_async(self._generate_config(question))
 
-            if meta_mas is not None:
+            if meta_maw is not None:
                 tracker.log_llm_call(
                     model=self._model,
-                    prompt_tokens=meta_mas.meta_prompt_tokens,
-                    completion_tokens=meta_mas.meta_completion_tokens,
-                    latency_ms=meta_mas.meta_elapsed * 1000,
+                    prompt_tokens=meta_maw.meta_prompt_tokens,
+                    completion_tokens=meta_maw.meta_completion_tokens,
+                    latency_ms=meta_maw.meta_elapsed * 1000,
                 )
 
             registry = self._build_mcp_registry()
-            mas = MAS(
+            maw = MAW(
                 meta_model=self._model,
                 worker_models=[self._model],
                 mcp_servers=registry,
             )
-            result = asyncio.run(mas.build_and_run(config, question))
+            result = _run_async(maw.build_and_run(config, question))
 
             tracker.log_llm_call(
                 model=self._model,
-                prompt_tokens=mas.total_prompt_tokens,
-                completion_tokens=mas.total_completion_tokens,
-                latency_ms=mas.elapsed * 1000,
+                prompt_tokens=maw.total_prompt_tokens,
+                completion_tokens=maw.total_completion_tokens,
+                latency_ms=maw.elapsed * 1000,
             )
 
             answer = self._extract_answer(result)

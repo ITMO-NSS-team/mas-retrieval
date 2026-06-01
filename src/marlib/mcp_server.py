@@ -74,6 +74,19 @@ def calculate(expression: str) -> str:
 
 
 if __name__ == "__main__":
+    # This process speaks JSON-RPC over stdout (MCP stdio transport). marlib's
+    # logger (logly) writes its console sink to stdout too, which corrupts the
+    # protocol stream ("Failed to parse JSONRPC message from server"). Silence
+    # the stdout console before anything logs; optionally tee to a file so the
+    # subprocess logs remain inspectable.
+    from marlib.log import logger
+
+    logger.configure(level=os.environ.get("MARLIB_LOG_LEVEL", "INFO").upper(),
+                     color=False, console=False)
+    log_file = os.environ.get("MARLIB_LOG_FILE")
+    if log_file:
+        logger.add(sink=log_file)
+
     # Fields are populated from MARLIB_* env at runtime, not constructor args.
     _retriever = Retriever(RetrieverSettings())  # ty: ignore[missing-argument]
     mcp.run(show_banner=False)
