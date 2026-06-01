@@ -1,3 +1,3 @@
-from .adapter import FedotMASAdapter
+from .adapter import FedotMAWAdapter
 
-__all__ = ["FedotMASAdapter"]
+__all__ = ["FedotMAWAdapter"]

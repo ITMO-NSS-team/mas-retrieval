@@ -3,14 +3,41 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
-from automas.meta_agents import GraphGenerator, PoolGenerator
-from automas.pipeline import PipelineBuilder
 from marlib.adapters.base import AbstractAdapter, register
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
+
+# Description surfaced to AutoMAS' meta-agent (PoolGenerator) so it knows the
+# corpus-retrieval server exists and is the way to ground answers. Without this
+# the meta-agent only sees AutoMAS' built-in servers (web-search, e2b-sandbox,
+# ...) and never touches the benchmark corpus.
+_RETRIEVAL_DESCRIPTION = """\
+Local document-corpus retrieval for the active benchmark. This is the ONLY way
+to access the benchmark's knowledge base — always use it to gather evidence
+before answering corpus/document questions; do not rely on web search or prior
+knowledge for them.
+
+Tools:
+- retrieval_search(query, top_k=10, use_rerank=True): semantic search over the
+  benchmark corpus; returns ranked passages with titles and scores.
+- calculate(expression): evaluate a math expression safely (e.g. ratios).
+
+Use cases: financial-report QA, multi-hop document QA, factual lookup grounded
+in the provided corpus.
+"""
+
+
+def _normalize_openrouter_model(model: str) -> str:
+    """AutoMAS routes through OpenRouter, whose model ids are namespaced
+    (``provider/model``). marlib passes bare ids like ``gpt-4o-mini``; prefix an
+    ``openai/`` namespace when none is present so OpenRouter accepts it."""
+    if not model or "/" in model:
+        return model
+    return f"openai/{model}"
 
 
 @register("automas")
@@ -24,6 +51,7 @@ class AutoMASAdapter(AbstractAdapter):
 
         self._cached_pool: Any = None
         self._cached_graph: Any = None
+        self._framework_ready = False
 
     def _on_benchmark_change(self) -> None:
         self._cached_pool = None
@@ -47,22 +75,78 @@ class AutoMASAdapter(AbstractAdapter):
     def name(self) -> str:
         return f"automas_{self._generation_mode}"
 
-    def _setup_mcp_registry(self) -> None:
-        pass
-
     def _set_llm_env(self) -> None:
-        model = self._model
+        """Populate the env AutoMAS reads. Must run *before* AutoMAS is imported:
+        its default model ids (``AGENT_NODE_MODEL`` / ``DEFAULT_META_MODEL``) are
+        captured at module-import time, and ``AgentNode``/``BaseMetaAgent`` require
+        ``OPENROUTER_API_KEY`` in the environment (AutoMAS routes via OpenRouter)."""
+        if not os.environ.get("OPENROUTER_API_KEY"):
+            # The repo already routes its OpenAI-compatible calls through
+            # OpenRouter (OPENAI_BASE_URL=https://openrouter.ai/api/v1), so the
+            # existing OPENAI_API_KEY *is* an OpenRouter key — reuse it rather
+            # than demanding a second secret.
+            base = os.environ.get("OPENAI_BASE_URL", "")
+            openai_key = os.environ.get("OPENAI_API_KEY")
+            if openai_key and "openrouter" in base:
+                os.environ["OPENROUTER_API_KEY"] = openai_key
+            else:
+                raise RuntimeError(
+                    "AutoMAS routes through OpenRouter but OPENROUTER_API_KEY is "
+                    "not set (and OPENAI_API_KEY is not an OpenRouter key). Set "
+                    "OPENROUTER_API_KEY in the environment (e.g. .env) before "
+                    "running the 'automas' system."
+                )
+        model = _normalize_openrouter_model(self._model)
         os.environ.setdefault("AGENT_NODE_MODEL", model)
         os.environ.setdefault("DEFAULT_META_MODEL", model)
 
+    def _setup_mcp_registry(self) -> None:
+        """Make marlib's retrieval MCP server the *only* server AutoMAS can use.
+
+        AutoMAS ships servers for web search (SearXNG), browser, e2b sandbox,
+        etc. On a corpus-grounded benchmark those are wrong (and unconfigured —
+        the meta-agent kept routing nodes to a non-running SearXNG), so we clear
+        the registry and leave only ``retrieval``. AutoMAS launches MCP servers
+        as stdio subprocesses and forwards ``os.environ`` to them, so MARLIB_*
+        env (incl. ``MARLIB_DOCIDS_FILE``) reaches ``marlib.mcp_server`` for
+        doc-id tracking. ``marlib.mcp_server.__main__`` already silences its
+        stdout console so the JSON-RPC stream stays clean."""
+        import marlib.mcp_server
+        from automas.mcp import external_descriptions
+        from automas.mcp import registry as automas_registry
+        from automas.mcp.server_config import MCPServerConfig
+
+        server_path = marlib.mcp_server.__file__
+
+        # command=sys.executable + a real script path passes AutoMAS'
+        # validate_server_config (it treats args[0] as a path that must exist;
+        # `-m module` would fail that check).
+        retrieval_cfg = MCPServerConfig(
+            command=sys.executable,
+            args=(server_path,),
+            timeout=30,
+            module_path=None,
+        )
+        automas_registry.MCP_SERVERS.clear()
+        automas_registry.MCP_SERVERS["retrieval"] = retrieval_cfg
+        external_descriptions.EXTERNAL_SERVER_DESCRIPTIONS.clear()
+        external_descriptions.EXTERNAL_SERVER_DESCRIPTIONS["retrieval"] = (
+            _RETRIEVAL_DESCRIPTION
+        )
+
     def _init_framework(self) -> None:
+        # Order matters: env before any AutoMAS import, then register the MCP
+        # server (which imports AutoMAS submodules).
         self._set_llm_env()
         self._setup_mcp_registry()
+        self._framework_ready = True
 
     def generate_system(self, question: str) -> str:
         return "AutoMAS auto-generated multi-agent pipeline (per-task)"
 
     async def _ensure_structure(self, question: str) -> tuple[Any, Any]:
+        from automas.meta_agents import GraphGenerator, PoolGenerator
+
         if (
             self._generation_mode == "one_time"
             and self._cached_pool is not None
@@ -90,6 +174,8 @@ class AutoMASAdapter(AbstractAdapter):
         return pool, graph
 
     async def _execute_async(self, question: str) -> tuple[Any, Any]:
+        from automas.pipeline import PipelineBuilder
+
         pool, graph = await self._ensure_structure(question)
 
         # PipelineBuilder.create_from_pool() deep-copies agents internally,
@@ -140,6 +226,9 @@ class AutoMASAdapter(AbstractAdapter):
 
         except Exception as e:
             tracker.set_error(str(e))
+            import traceback
+
+            traceback.print_exc()
             answer = ""
 
         if docids_file.exists():
@@ -153,10 +242,11 @@ class AutoMASAdapter(AbstractAdapter):
             return ""
 
         if isinstance(result, dict):
-            answer = result.get("answer")
-            if answer is not None:
-                return str(answer).strip()
-            return str(result)
+            for key in ("answer", "output", "final_output", "result"):
+                value = result.get(key)
+                if value is not None and str(value).strip():
+                    return str(value).strip()
+            return str(result).strip()
 
         return str(result).strip()
 

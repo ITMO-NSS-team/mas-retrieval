@@ -46,6 +46,22 @@ mas_zero = ["openai>=2.16.0", "backoff>=2.2.0"]
 # fedotmas / automas: install from local source
 #   uv pip install -e automas-research/
 
+[tool.uv]
+# Keep the OpenTelemetry stack internally consistent. chromadb pulls the OTLP
+# exporter and pydantic-ai needs opentelemetry-sdk>=1.39 (<1.42), but api and
+# sdk ship in lockstep, so a mix (api 1.38 from automas' old `<1.39` cap + sdk
+# 1.41 from the exporter) breaks `import chromadb` (ImportError:
+# ReadableLogRecord). Pin the whole stack to the 1.39–1.41 window so api / sdk /
+# exporter stay aligned. (automas' pyproject cap was relaxed to match.)
+# Constraints only bound versions of deps that are already required.
+constraint-dependencies = [
+    "opentelemetry-api>=1.39,<1.42",
+    "opentelemetry-sdk>=1.39,<1.42",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.39,<1.42",
+    "opentelemetry-exporter-otlp-proto-common>=1.39,<1.42",
+    "opentelemetry-proto>=1.39,<1.42",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
