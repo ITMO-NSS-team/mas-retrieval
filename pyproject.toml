@@ -59,6 +59,7 @@ constraint-dependencies = [
     "opentelemetry-sdk>=1.39,<1.42",
     "opentelemetry-exporter-otlp-proto-grpc>=1.39,<1.42",
     "opentelemetry-exporter-otlp-proto-common>=1.39,<1.42",
+    "opentelemetry-exporter-otlp-proto-http>=1.39,<1.42",
     "opentelemetry-proto>=1.39,<1.42",
 ]
 

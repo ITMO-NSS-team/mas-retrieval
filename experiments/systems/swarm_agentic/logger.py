@@ -14,8 +14,16 @@ def setup_logger(name):
 
     BASE_PATH.mkdir(parents=True, exist_ok=True)
 
+    # Drop handlers from previous setup calls to avoid duplicate log lines and
+    # re-attaching to a truncated file.
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        handler.close()
+
     log_path = BASE_PATH / f"result-{name}.log"
-    file_handler = logging.FileHandler(log_path, mode="w")
+    # Append mode: do not wipe earlier runs' logs (e.g. if a later repeat
+    # crashes during init before writing anything).
+    file_handler = logging.FileHandler(log_path, mode="a")
     file_handler.setLevel(logging.WARNING)
 
     formatter = logging.Formatter("%(message)s")

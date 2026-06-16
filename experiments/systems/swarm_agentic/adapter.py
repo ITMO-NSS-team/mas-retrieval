@@ -70,12 +70,13 @@ class SwarmAgenticAdapter(AbstractAdapter):
         team.init(llm=llm_init)
         team.inject_tool_roles()
 
-        # 2. Generate forward code
+        # 2. Generate forward code (validated against the team's callable roles)
         self._forward_code = get_forward(
             llm_init,
             logger,
             team.to_str(),
             team.workflow,
+            valid_names=[r.name for r in team.roles],
         )
         self._team_dict = team.save_into_dict()
         self._initialized = True
@@ -122,14 +123,6 @@ class SwarmAgenticAdapter(AbstractAdapter):
             func = set_forward(self._forward_code)
             team.reset_task(question)
             answer = func(team)
-
-            tracker.log_llm_call(
-                model=self._model,
-                prompt_tokens=0,
-                completion_tokens=0,
-                latency_ms=0,
-                function_calls=0,
-            )
 
         except Exception as e:
             tracker.set_error(str(e))

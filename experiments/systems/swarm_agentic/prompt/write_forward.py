@@ -41,6 +41,7 @@ Here is an examples to help you design the function:
 <examples>
 {examples}
 </examples>
+{feedback}
 """
 
 schema = {
@@ -57,10 +58,16 @@ schema = {
 }
 
 
-def build_forward(llm, logger, roles, workflow):
+def build_forward(llm, logger, roles, workflow, feedback=""):
     """Generate the forward function via LLM with structured output."""
     prompt = PromptTemplate(
-        input_variables=["function_description", "roles", "workflow", "examples"],
+        input_variables=[
+            "function_description",
+            "roles",
+            "workflow",
+            "examples",
+            "feedback",
+        ],
         template=BASE,
     )
     chain = prompt | llm.with_structured_output(schema)
@@ -69,6 +76,7 @@ def build_forward(llm, logger, roles, workflow):
         "roles": roles,
         "workflow": json.dumps(workflow, indent=4),
         "examples": EXAMPLES,
+        "feedback": feedback,
     }
     res = chain.invoke(input_vars)
     log(logger, "Write Forward", prompt.format(**input_vars), res["code"])

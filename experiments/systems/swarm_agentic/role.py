@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, List
 
-from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
@@ -64,6 +64,25 @@ class MessagePool:
         self.messages = []
 
 
+# ── Name normalization ───────────────────────────────────────
+
+
+def _message_text(message: Any) -> str:
+    """Extract plain text from an LLM response (AIMessage or str)."""
+    content = getattr(message, "content", message)
+    return content if isinstance(content, str) else str(content)
+
+
+def normalize_name(name: str) -> str:
+    """Normalize a role name for tolerant matching.
+
+    Lowercases and strips everything except alphanumerics, so minor
+    differences (case, spacing, punctuation) between the team-init step and
+    the forward-generation step do not cause a spurious "unexisting role".
+    """
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
 # ── Tool functions ───────────────────────────────────────────
 
 
@@ -116,11 +135,17 @@ def _tool_calculate(
 class Role:
     """Base class for a role in a team — calls an LLM to generate a response."""
 
-    def __init__(self, role: dict[str, Any], llm: Any) -> None:
+    def __init__(
+        self,
+        role: dict[str, Any],
+        llm: Any,
+        tracker: TokenTracker | None = None,
+    ) -> None:
         self.name: str = role["Name"]
         self.responsibility: str = role["Responsibility"]
         self.policy: str = role["Policy"]
         self.llm = llm
+        self.tracker = tracker
         self.message = Message(
             role=role["Name"],
             subtask=role["Responsibility"],
@@ -166,7 +191,7 @@ class Role:
             ],
             template=ROLE_PROMPT,
         )
-        chain = prompt | self.llm | StrOutputParser()
+        chain = prompt | self.llm
         input_vars = {
             "name": self.name,
             "responsibility": self.responsibility,
@@ -175,7 +200,19 @@ class Role:
             "information": others_outputs,
             "output": output,
         }
-        response = chain.invoke(input_vars)
+        model = getattr(self.llm, "model_name", None) or getattr(
+            self.llm, "model", "unknown"
+        )
+        if self.tracker is not None:
+            with self.tracker.track_llm(model) as stats:
+                message = chain.invoke(input_vars)
+                response = _message_text(message)
+                usage = getattr(message, "usage_metadata", None) or {}
+                stats["prompt_tokens"] = usage.get("input_tokens", 0)
+                stats["completion_tokens"] = usage.get("output_tokens", 0)
+        else:
+            message = chain.invoke(input_vars)
+            response = _message_text(message)
 
         log_entry = (f"Role - {self.name}", prompt.format(**input_vars), response)
         self.message.content = f"\n{response}\n"
@@ -301,7 +338,9 @@ class Team:
     def init(self, llm: Any) -> None:
         """Initialize the team using LLM — generates roles and workflow."""
         res = init_team(llm, self.logger)
-        self.roles = [Role(role=r, llm=self.llm) for r in res["roles"]]
+        self.roles = [
+            Role(role=r, llm=self.llm, tracker=self.tracker) for r in res["roles"]
+        ]
         self.workflow = res["workflow"]
 
     def inject_tool_roles(self) -> None:
@@ -326,6 +365,17 @@ class Team:
     def __repr__(self) -> str:
         return self.to_str()
 
+    def _find_role(self, required_role: str) -> Role | None:
+        """Find a role by exact name, falling back to normalized matching."""
+        for role in self.roles:
+            if role.name == required_role:
+                return role
+        target = normalize_name(required_role)
+        for role in self.roles:
+            if normalize_name(role.name) == target:
+                return role
+        return None
+
     def call(
         self,
         required_role: str,
@@ -335,19 +385,22 @@ class Team:
         """Call a role by name with the given inputs."""
         if inputs is None:
             inputs = []
-        for role in self.roles:
-            if role.name == required_role:
-                inputs = [self.task] + inputs
-                response, log_entry = role(inputs, output)
-                self.logs.append(log_entry)
-                if self.message_pool is not None:
-                    self.message_pool.add_message(role.message)
-                return response
-        return f"Call an unexisting Role {required_role}."
+        role = self._find_role(required_role)
+        if role is None:
+            return f"Call an unexisting Role {required_role}."
+        inputs = [self.task] + inputs
+        response, log_entry = role(inputs, output)
+        self.logs.append(log_entry)
+        if self.message_pool is not None:
+            self.message_pool.add_message(role.message)
+        return response
 
     def update(self, new_team: dict[str, Any]) -> None:
         """Update team from a saved dict (roles + workflow)."""
-        self.roles = [Role(role=r, llm=self.llm) for r in new_team["roles"]]
+        self.roles = [
+            Role(role=r, llm=self.llm, tracker=self.tracker)
+            for r in new_team["roles"]
+        ]
         self.workflow = new_team["workflow"]
         self.task = None
         self.logs = []
