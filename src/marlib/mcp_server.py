@@ -6,13 +6,13 @@ import os
 from fastmcp import FastMCP
 
 from marlib.adapters.calc import safe_eval
-from marlib.retriever import Retriever, RetrieverSettings
+from marlib.retriever import RetrieverProtocol, RetrieverSettings, make_retriever
 
 mcp = FastMCP("marlib-tools")
 
 # Built once in __main__ before the server starts (this module is only ever run
 # as `python -m marlib.mcp_server`, spawned by the retrieval adapters).
-_retriever: Retriever | None = None
+_retriever: RetrieverProtocol | None = None
 
 
 def _log_doc_ids(tool_name: str, query: str, doc_ids: list[str]) -> None:
@@ -81,12 +81,15 @@ if __name__ == "__main__":
     # subprocess logs remain inspectable.
     from marlib.log import logger
 
-    logger.configure(level=os.environ.get("MARLIB_LOG_LEVEL", "INFO").upper(),
-                     color=False, console=False)
+    logger.configure(
+        level=os.environ.get("MARLIB_LOG_LEVEL", "INFO").upper(),
+        color=False,
+        console=False,
+    )
     log_file = os.environ.get("MARLIB_LOG_FILE")
     if log_file:
         logger.add(sink=log_file)
 
     # Fields are populated from MARLIB_* env at runtime, not constructor args.
-    _retriever = Retriever(RetrieverSettings())  # ty: ignore[missing-argument]
+    _retriever = make_retriever(RetrieverSettings())  # ty: ignore[missing-argument]
     mcp.run(show_banner=False)

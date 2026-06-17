@@ -9,7 +9,7 @@ from typing import Any
 
 from marlib.log import logger
 from marlib.tracing.schemas import QuestionLog
-from marlib.retriever.core import Retriever
+from marlib.retriever.core import RetrieverProtocol
 
 
 class AbstractAdapter(ABC):
@@ -17,7 +17,7 @@ class AbstractAdapter(ABC):
 
     def __init__(
         self,
-        retriever: Retriever,
+        retriever: RetrieverProtocol,
         model: str = "gpt-4o-mini",
         **kwargs: Any,
     ) -> None:

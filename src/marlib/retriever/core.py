@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
+from typing import Protocol
 
 import chromadb
 import numpy as np
 
 from marlib.retriever.config import RetrieverSettings
-from marlib.retriever.embedder import BGEM3Embedder
+from marlib.retriever.embedder import make_embedder
 from marlib.retriever.reranker import BGEReranker
 
 
@@ -26,13 +27,36 @@ class Document:
     score: float = 0.0
 
 
-class Retriever:
+class RetrieverProtocol(Protocol):
+    @property
+    def document_count(self) -> int: ...
+
+    def retrieve(self, query: str, top_k: int | None = None) -> list[Document]: ...
+
+    def rerank(
+        self, query: str, docs: list[Document], top_k: int | None = None
+    ) -> list[Document]: ...
+
+    def search(
+        self,
+        query: str,
+        top_k: int | None = None,
+        use_rerank: bool = True,
+    ) -> list[Document]: ...
+
+
+class ChromaRetriever:
     """ChromaDB collection + embedder + reranker behind a search() pipeline."""
 
     def __init__(self, settings: RetrieverSettings) -> None:
         self.settings = settings
 
-        self._embedder = BGEM3Embedder(model_name=settings.embedder)
+        self._embedder = make_embedder(
+            model_name=settings.embedder,
+            backend=settings.embedder_backend,
+            base_url=settings.embedder_base_url,
+            api_key=settings.embedder_api_key,
+        )
         self._reranker = BGEReranker(model_name=settings.reranker)
 
         # Each dataset's collection lives in its own subdirectory of index_path.
@@ -116,3 +140,7 @@ class Retriever:
         if use_rerank and candidates:
             return self.rerank(query, candidates, top_k=top_k)
         return candidates[:top_k]
+
+
+# Backward-compatible public name: existing adapters import Retriever directly.
+Retriever = ChromaRetriever

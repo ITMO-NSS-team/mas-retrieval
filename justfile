@@ -19,6 +19,20 @@ prepare *names:
         uv run build-index --benchmark "$name"
     done
 
+# Build LightRAG indexes separately: this uses LLM calls during indexing.
+# Extra flags can be passed directly with `uv run build-lightrag-index`.
+lightrag-index *names:
+    #!/usr/bin/env sh
+    set -eu
+    names="{{names}}"
+    if [ -z "$names" ] || [ "$names" = "all" ]; then
+        names=$(uv run --no-sync python -c "from marlib.benchmarks import discover; print(' '.join(discover()))")
+    fi
+    for name in $names; do
+        echo ">>> LightRAG indexing $name"
+        uv run --group lightrag build-lightrag-index --benchmark "$name"
+    done
+
 # Run experiments (cross-OS); pass any CLI flag. See all with: just run --help
 run *ARGS:
     uv run --no-sync python -m marlib.cli {{ARGS}}

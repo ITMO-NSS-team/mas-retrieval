@@ -29,7 +29,9 @@ dependencies = [
 [project.scripts]
 download-benchmarks = "marlib.data.download_benchmarks:main"
 prepare-corpus = "marlib.data.prepare_corpus:main"
+import-answers = "marlib.data.import_answers:main"
 build-index = "marlib.retriever.index_builder:main"
+build-lightrag-index = "marlib.retriever.lightrag_index_builder:main"
 bench = "marlib.cli:main"
 
 
@@ -39,9 +41,11 @@ benchmarks = ["datasets>=4.5.0", "pymupdf>=1.25.0"]
 ma_rag = ["pydantic-graph>=1.56.0"]
 swarm_agentic = ["langchain-openai>=0.3.0", "langchain-core>=0.3.0"]
 naive_rag = ["openai>=2.16.0", "python-dotenv>=1.0.0"]
+api_embedder = ["openai>=2.16.0"]
 meta_agent = ["openai>=2.16.0"]
 adas = ["openai>=2.16.0", "backoff>=2.2.0"]
 mas_zero = ["openai>=2.16.0", "backoff>=2.2.0"]
+lightrag = ["lightrag-hku>=1.4.16"]
 
 # fedotmas / automas: install from local source
 #   uv pip install -e automas-research/
