@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from marlib.adapters.calc import do_calculate, safe_eval
-from marlib.retriever.core import Document, Retriever
+from marlib.retriever.core import Document, RetrieverProtocol
 
 __all__ = [
     "format_docs",
@@ -22,7 +22,7 @@ def format_docs(docs: list[Document]) -> str:
 
 
 def do_retrieve(
-    retriever: Retriever,
+    retriever: RetrieverProtocol,
     query: str,
     top_k: int = 20,
 ) -> tuple[list[Document], str]:
@@ -31,7 +31,7 @@ def do_retrieve(
 
 
 def do_rerank(
-    retriever: Retriever,
+    retriever: RetrieverProtocol,
     query: str,
     docs: list[Document],
     top_k: int = 10,

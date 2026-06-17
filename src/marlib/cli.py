@@ -13,7 +13,7 @@ from marlib.benchmarks import BenchmarkSpec, discover, load_spec
 from marlib.evaluation.llm_judge import judge_model
 from marlib.reporting import render_summary
 from marlib.log import logger
-from marlib.retriever import Retriever, RetrieverSettings
+from marlib.retriever import RetrieverSettings, make_retriever
 from marlib.runner import run_system_on_benchmark, save_results
 from marlib.tracing.schemas import SystemResults
 
@@ -99,9 +99,51 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"Embedder model name (default: {rs['embedder'].default}).",
     )
     parser.add_argument(
+        "--embedder-backend",
+        default=None,
+        choices=["local", "openai"],
+        help=f"Embedding backend (default: {rs['embedder_backend'].default}).",
+    )
+    parser.add_argument(
+        "--embedder-base-url",
+        default=None,
+        help="Base URL for OpenAI-compatible embeddings, e.g. http://localhost:8001/v1.",
+    )
+    parser.add_argument(
+        "--embedder-api-key",
+        default=None,
+        help="API key for OpenAI-compatible embeddings (default: OPENAI_API_KEY or dummy).",
+    )
+    parser.add_argument(
+        "--embedder-dim",
+        type=int,
+        default=None,
+        help=f"Embedding dimension used by LightRAG (default: {rs['embedder_dim'].default}).",
+    )
+    parser.add_argument(
         "--reranker",
         default=None,
         help=f"Reranker model name (default: {rs['reranker'].default}).",
+    )
+    parser.add_argument(
+        "--retriever",
+        default=None,
+        choices=["chroma", "lightrag"],
+        help=f"Retriever backend (default: {rs['retriever'].default}).",
+    )
+    parser.add_argument(
+        "--lightrag-mode",
+        default=None,
+        choices=["naive", "local", "global", "hybrid", "mix"],
+        help=f"LightRAG query mode (default: {rs['lightrag_mode'].default}).",
+    )
+    parser.add_argument(
+        "--lightrag-llm-model",
+        default=None,
+        help=(
+            "LLM model used by LightRAG for query-time extraction "
+            f"(default: {rs['lightrag_llm_model'].default})."
+        ),
     )
     parser.add_argument(
         "--data-dir",
@@ -206,20 +248,32 @@ def _run_benchmark(
         k: v
         for k, v in {
             "embedder": args.embedder,
+            "embedder_backend": args.embedder_backend,
+            "embedder_base_url": args.embedder_base_url,
+            "embedder_api_key": args.embedder_api_key,
+            "embedder_dim": args.embedder_dim,
             "reranker": args.reranker,
+            "retriever": args.retriever,
+            "lightrag_mode": args.lightrag_mode,
+            "lightrag_llm_model": args.lightrag_llm_model,
             "retrieve_top_k": args.retrieve_top_k,
             "rerank_top_k": args.rerank_top_k,
         }.items()
         if v is not None
     }
+    index_path = (
+        spec.root / "lightrag_index"
+        if overrides.get("retriever") == "lightrag"
+        else spec.index_path
+    )
     settings = RetrieverSettings(
-        index_path=spec.index_path, collection=spec.collection, **overrides
+        index_path=index_path, collection=spec.collection, **overrides
     )
     # Export so any MCP server spawned by an adapter reconstructs this same config.
     settings.export_env()
 
     logger.info("Initializing retriever...")
-    retriever = Retriever(settings)
+    retriever = make_retriever(settings)
     logger.info(
         f"Collection '{spec.collection}' loaded",
         documents=retriever.document_count,

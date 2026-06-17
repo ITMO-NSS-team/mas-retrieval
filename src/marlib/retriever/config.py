@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -30,8 +31,15 @@ class RetrieverSettings(BaseSettings):
     index_path: Path
     collection: str
 
+    retriever: Literal["chroma", "lightrag"] = "chroma"
     embedder: str = DEFAULT_EMBEDDER
+    embedder_backend: Literal["local", "openai"] = "local"
+    embedder_base_url: str | None = None
+    embedder_api_key: str | None = None
+    embedder_dim: int = 1024
     reranker: str = DEFAULT_RERANKER
+    lightrag_mode: Literal["naive", "local", "global", "hybrid", "mix"] = "mix"
+    lightrag_llm_model: str = "openai/gpt-4o-mini"
     retrieve_top_k: int = 20
     rerank_top_k: int = 10
 

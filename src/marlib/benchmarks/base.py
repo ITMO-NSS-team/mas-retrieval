@@ -9,7 +9,7 @@ import types
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from marlib.log import logger
 
@@ -64,6 +64,11 @@ class BenchmarkSpec:
     def index_path(self) -> Path:
         """Base ChromaDB directory; the collection lives in ``index/<collection>``."""
         return self.root / "index"
+
+    @property
+    def lightrag_index_path(self) -> Path:
+        """Base LightRAG directory; the collection lives in ``lightrag_index/<collection>``."""
+        return self.root / "lightrag_index"
 
     @property
     def source_dir(self) -> Path:
@@ -177,6 +182,9 @@ def get_builder(name: str) -> BenchmarkBuilder:
 def build_index(
     spec: BenchmarkSpec,
     embedder_model: str | None = None,
+    embedder_backend: Literal["local", "openai"] = "local",
+    embedder_base_url: str | None = None,
+    embedder_api_key: str | None = None,
     batch_size: int = 32,
 ) -> None:
     """Encode ``corpus.jsonl`` into a ChromaDB collection under
@@ -195,7 +203,7 @@ def build_index(
 
     from marlib.log import logger
     from marlib.retriever.config import DEFAULT_EMBEDDER
-    from marlib.retriever.embedder import BGEM3Embedder
+    from marlib.retriever.embedder import make_embedder
 
     embedder_model = embedder_model or DEFAULT_EMBEDDER
 
@@ -211,7 +219,12 @@ def build_index(
     )
 
     logger.info(f"Loading embedder: {embedder_model}")
-    embedder = BGEM3Embedder(model_name=embedder_model)
+    embedder = make_embedder(
+        model_name=embedder_model,
+        backend=embedder_backend,
+        base_url=embedder_base_url,
+        api_key=embedder_api_key,
+    )
 
     logger.info(f"Loading corpus from: {corpus_path}")
     docs = []
@@ -255,3 +268,164 @@ def build_index(
             torch.mps.empty_cache()
 
     logger.info(f"Collection size: {collection.count()} documents")
+
+
+def build_lightrag_index(
+    spec: BenchmarkSpec,
+    embedder_model: str | None = None,
+    embedder_backend: Literal["local", "openai"] = "local",
+    embedder_base_url: str | None = None,
+    embedder_api_key: str | None = None,
+    embedder_dim: int = 1024,
+    llm_model: str = "openai/gpt-4o-mini",
+    batch_size: int = 8,
+    max_documents: int | None = None,
+    max_parallel_insert: int = 2,
+    clear_existing: bool = False,
+) -> None:
+    """Insert ``corpus.jsonl`` into a LightRAG workspace under
+    ``spec.lightrag_index_path / spec.collection``.
+
+    LightRAG indexing extracts entities/relations with an LLM, so this builder
+    keeps the model explicit and records a marker file after successful insert.
+    """
+    import gc
+    import os
+    import shutil
+    import threading
+    from datetime import UTC, datetime
+
+    import numpy as np
+    import torch
+    from tqdm import tqdm
+
+    from marlib.log import logger
+    from marlib.retriever.config import DEFAULT_EMBEDDER
+    from marlib.retriever.embedder import make_embedder
+    from marlib.retriever.lightrag_core import _provider_model_name, _run_async
+
+    try:
+        from lightrag import LightRAG
+        from lightrag.llm.openai import openai_complete_if_cache
+        from lightrag.utils import wrap_embedding_func_with_attrs
+    except ImportError as e:
+        raise RuntimeError(
+            "LightRAG index builder requires the optional 'lightrag' dependency "
+            "group. Install it with `uv sync --group lightrag`."
+        ) from e
+
+    embedder_model = embedder_model or DEFAULT_EMBEDDER
+    corpus_path = spec.corpus_path
+    index_path = spec.lightrag_index_path / spec.collection
+
+    if clear_existing and index_path.exists():
+        logger.info(f"Clearing existing LightRAG index at: {index_path}")
+        shutil.rmtree(index_path)
+    index_path.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"Loading corpus from: {corpus_path}")
+    docs = []
+    with open(corpus_path) as f:
+        for line in f:
+            docs.append(json.loads(line))
+            if max_documents is not None and len(docs) >= max_documents:
+                break
+    logger.info(f"Corpus size: {len(docs)} documents")
+
+    logger.info(f"Loading embedder: {embedder_model}")
+    embedder = make_embedder(
+        model_name=embedder_model,
+        backend=embedder_backend,
+        base_url=embedder_base_url,
+        api_key=embedder_api_key,
+    )
+    embedder_lock = threading.Lock()
+
+    async def embedding_func(texts: list[str]) -> np.ndarray:
+        with embedder_lock:
+            embeddings = embedder.encode_documents(texts, batch_size=batch_size)
+        if embeddings.dtype != np.float32:
+            embeddings = embeddings.astype(np.float32)
+        return embeddings
+
+    embedding_func = wrap_embedding_func_with_attrs(
+        embedding_dim=embedder_dim,
+        max_token_size=8192,
+        model_name=embedder_model,
+    )(embedding_func)
+
+    async def llm_model_func(
+        prompt: str,
+        system_prompt: str | None = None,
+        history_messages: list[dict[str, str]] | None = None,
+        **kwargs: object,
+    ) -> str:
+        return await openai_complete_if_cache(
+            _provider_model_name(llm_model),
+            prompt,
+            system_prompt=system_prompt,
+            history_messages=history_messages or [],
+            api_key=os.environ.get("OPENAI_API_KEY"),
+            base_url=os.environ.get("OPENAI_BASE_URL"),
+            **kwargs,
+        )
+
+    logger.info(f"Initializing LightRAG at: {index_path}")
+    rag = LightRAG(
+        working_dir=str(index_path),
+        llm_model_func=llm_model_func,
+        llm_model_name=_provider_model_name(llm_model),
+        embedding_func=embedding_func,
+        embedding_func_max_async=1,
+        max_parallel_insert=max_parallel_insert,
+    )
+    _run_async(rag.initialize_storages())
+
+    try:
+        logger.info("Inserting documents into LightRAG...")
+        progress = tqdm(
+            total=len(docs),
+            desc=f"LightRAG insert ({batch_size}/batch)",
+            unit="doc",
+        )
+        with progress:
+            for batch_start in range(0, len(docs), batch_size):
+                batch_docs = docs[batch_start : batch_start + batch_size]
+                texts = [
+                    f"Title: {d.get('title', '')}\n\n{d['text']}".strip()
+                    for d in batch_docs
+                ]
+                doc_ids = [str(d["doc_id"]) for d in batch_docs]
+                _run_async(rag.insert(texts, ids=doc_ids))
+                progress.update(len(batch_docs))
+
+                del texts, doc_ids, batch_docs
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                elif torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
+
+        marker = {
+            "benchmark": spec.name,
+            "collection": spec.collection,
+            "document_count": len(docs),
+            "corpus_path": str(corpus_path),
+            "embedder": embedder_model,
+            "embedder_backend": embedder_backend,
+            "embedder_base_url": embedder_base_url,
+            "embedder_dim": embedder_dim,
+            "llm_model": llm_model,
+            "batch_size": batch_size,
+            "max_parallel_insert": max_parallel_insert,
+            "max_documents": max_documents,
+            "built_at": datetime.now(UTC).isoformat(),
+        }
+        (index_path / "marlib_lightrag_index.json").write_text(
+            json.dumps(marker, indent=2) + "\n"
+        )
+        logger.info(f"LightRAG index ready: {index_path}")
+    finally:
+        finalize = getattr(rag, "finalize_storages", None)
+        if finalize is not None:
+            _run_async(finalize())
