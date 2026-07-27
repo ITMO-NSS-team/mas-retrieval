@@ -6,10 +6,13 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from marlib.adapters.base import AbstractAdapter, register
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
+
+from .structure import structure_metrics
 
 # Description surfaced to AutoMAS' meta-agent (PoolGenerator) so it knows the
 # corpus-retrieval server exists and is the way to ground answers. Without this
@@ -53,9 +56,17 @@ class AutoMASAdapter(AbstractAdapter):
         self._cached_graph: Any = None
         self._framework_ready = False
 
+        # One id per adapter instance. The CLI builds a fresh adapter for every
+        # --repeats iteration (cli.py:245), so this separates the repeats in the
+        # structure sidecar -- which is what makes the across-run structural
+        # variance (sDic Q4) readable straight off the file.
+        self._instance_id = uuid4().hex[:8]
+        self._pool_size: int | None = None
+
     def _on_benchmark_change(self) -> None:
         self._cached_pool = None
         self._cached_graph = None
+        self._pool_size = None
 
     def _build_task_description(self) -> str:
         """Build a generic task description from benchmark context for one_time mode."""
@@ -167,6 +178,14 @@ class AutoMASAdapter(AbstractAdapter):
         pool = await pool_gen.create_pool(task_description)
         graph = await graph_gen.create_graph(pool, task_description)
 
+        # Pool size is the generator's raw output; the graph stage may keep only
+        # a subset of it (DEFAULT_GRAPH_INSTRUCT, prompt_registry.py:136), so it
+        # is recorded separately from the executed |V|.
+        try:
+            self._pool_size = len(pool)
+        except TypeError:
+            self._pool_size = None
+
         if self._generation_mode == "one_time":
             self._cached_pool = pool
             self._cached_graph = graph
@@ -211,6 +230,8 @@ class AutoMASAdapter(AbstractAdapter):
             result, pipeline = asyncio.run(self._execute_async(question))
             answer = self._extract_answer(result)
 
+            self._record_structure(question_id, pipeline)
+
             prompt_tokens = getattr(pipeline, "input_tokens", 0) or 0
             completion_tokens = getattr(pipeline, "output_tokens", 0) or 0
 
@@ -235,6 +256,37 @@ class AutoMASAdapter(AbstractAdapter):
             docids_file.unlink()
 
         return answer, tracker.to_question_log(answer)
+
+    def _record_structure(self, question_id: str, pipeline: Any) -> None:
+        """Append this question's workflow shape to the structure sidecar.
+
+        |V|, |E| and the critical path are the paper's complexity measure
+        (main.tex:77) and are *not* recoverable from the run results:
+        ``tracker.log_llm_call`` fires once per question here, so
+        ``QuestionLog.num_llm_calls`` is the constant 1 no matter how many agents
+        the generator produced. A sidecar keeps this out of ``marlib`` -- the
+        harness owns ``QuestionLog`` and it has no spare field.
+
+        Measurement must never take a run down, so any failure is swallowed.
+        """
+        try:
+            nodes = list(getattr(pipeline, "execution_order", []) or [])
+            record = {
+                "instance_id": self._instance_id,
+                "question_id": question_id,
+                "system": self.name,
+                "benchmark": self._benchmark_name,
+                "generation_mode": self._generation_mode,
+                "pool_size": self._pool_size,
+                **structure_metrics(nodes),
+            }
+            out_dir = Path(os.environ.get("MARLIB_STRUCTURE_DIR", "results/structure"))
+            out_dir.mkdir(parents=True, exist_ok=True)
+            path = out_dir / f"{self.name}_{self._benchmark_name}.jsonl"
+            with open(path, "a") as f:
+                f.write(json.dumps(record) + "\n")
+        except Exception as e:  # never fail a run over instrumentation
+            print(f"[automas] structure logging failed for {question_id}: {e}")
 
     @staticmethod
     def _extract_answer(result: dict[str, Any]) -> str:
