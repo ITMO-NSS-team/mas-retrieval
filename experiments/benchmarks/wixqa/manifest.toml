@@ -1,0 +1,10 @@
+name = "wixqa"
+collection = "wixqa"
+split = "expertwritten"
+metrics = ["llm_accuracy", "context_recall"]
+description = """
+Enterprise customer-support question answering over the Wix Help Center \
+knowledge base (WixQA, arXiv:2505.08643). Real user questions are answered from \
+a single corpus of ~6.2k help articles; answers are procedural and often \
+synthesise several articles, so gold relevance is given as a set of article ids.
+"""
