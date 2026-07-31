@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -209,7 +210,7 @@ class AutoMASAdapter(AbstractAdapter):
 
         try:
             result, pipeline = asyncio.run(self._execute_async(question))
-            answer = self._extract_answer(result)
+            answer = self._answer_from_pipeline(pipeline, result)
 
             prompt_tokens = getattr(pipeline, "input_tokens", 0) or 0
             completion_tokens = getattr(pipeline, "output_tokens", 0) or 0
@@ -235,6 +236,49 @@ class AutoMASAdapter(AbstractAdapter):
             docids_file.unlink()
 
         return answer, tracker.to_question_log(answer)
+
+    # A generated workflow may end in a stage that reviews the answer instead of
+    # producing one. AutoMAS' pipeline returns the *last* node's output
+    # (``pipeline.ainvoke``), so for such workflows the reviewer's verdict, not
+    # the answer, would be scored. Node names matching this pattern are treated
+    # as non-answering and skipped when reading the answer off the pipeline.
+    _NON_ANSWERING_NODE = re.compile(
+        r"quality|assess|verif|valid|critic|review|evaluat|judge", re.IGNORECASE
+    )
+
+    @classmethod
+    def _answer_from_pipeline(cls, pipeline: Any, result: Any) -> str:
+        """Read the final answer off an executed pipeline.
+
+        Walks the execution order backwards and returns the last node that
+        actually answers, so a trailing review/verification stage does not
+        replace the answer with its own verdict. Falls back to the pipeline's
+        own return value when no such node is found, when the pipeline does not
+        expose its per-node outputs, or when every node looks non-answering.
+
+        This is a no-op for single-node workflows (the one node is both the last
+        and the only candidate), so it cannot change results for runs whose
+        generated workflow has one agent.
+        """
+        fallback = cls._extract_answer(result)
+
+        order = getattr(pipeline, "execution_order", None)
+        session = getattr(pipeline, "node_session", None)
+        executions = getattr(session, "node_executions", None)
+        if not order or not executions:
+            return fallback
+
+        for node in reversed(list(order)):
+            if cls._NON_ANSWERING_NODE.search(getattr(node, "name", "") or ""):
+                continue
+            execution = executions.get(getattr(node, "id", None))
+            if execution is None:
+                continue
+            answer = cls._extract_answer(getattr(execution, "output", None))
+            if answer:
+                return answer
+
+        return fallback
 
     @staticmethod
     def _extract_answer(result: dict[str, Any]) -> str:
