@@ -33,6 +33,13 @@ Use cases: financial-report QA, multi-hop document QA, factual lookup grounded
 in the provided corpus.
 """
 
+_RETRIEVAL_TOOL_ALIASES = {
+    # Meta-agent sometimes returns function names in mcp_tools instead of the
+    # server name. Both are exposed by the single "retrieval" MCP server.
+    "calculate": "retrieval",
+    "retrieval_search": "retrieval",
+}
+
 
 def _normalize_openrouter_model(model: str) -> str:
     """AutoMAS routes through OpenRouter, whose model ids are namespaced
@@ -196,6 +203,7 @@ class AutoMASAdapter(AbstractAdapter):
         from automas.pipeline import PipelineBuilder
 
         pool, graph = await self._ensure_structure(question)
+        self._normalize_pool_mcp_tools(pool)
 
         # PipelineBuilder.create_from_pool() deep-copies agents internally,
         # so pool/graph templates can be reused directly.
@@ -206,6 +214,20 @@ class AutoMASAdapter(AbstractAdapter):
         ).build()
         result = await pipeline.ainvoke(question)
         return result, pipeline
+
+    @staticmethod
+    def _normalize_pool_mcp_tools(pool: Any) -> None:
+        from automas.mcp import registry as automas_registry
+
+        valid_servers = set(automas_registry.MCP_SERVERS.keys())
+
+        for agent in pool:
+            normalized: list[str] = []
+            for tool_name in getattr(agent, "mcp_tools", []) or []:
+                mapped = _RETRIEVAL_TOOL_ALIASES.get(tool_name, tool_name)
+                if mapped in valid_servers and mapped not in normalized:
+                    normalized.append(mapped)
+            agent.mcp_tools = normalized
 
     def execute(
         self,
