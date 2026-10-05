@@ -35,7 +35,11 @@ Available in scope (DO NOT import these):
   Calling an agent returns a list of `Info` (one per output field); e.g.
   `thinking, answer = agent([taskInfo, ...], instruction, is_sub_task=True)`.
 - Tools on `self`: `self.retrieve(query, top_k=20)`, `self.rerank(query, top_k=10)`,
-  `self.calculate(expression)` — each returns a formatted string. Wrap a tool
+  `self.calculate(expression)` — each returns a formatted string. Each candidate
+  starts with no retrieved documents. Call `self.retrieve(q, top_k=20)` BEFORE
+  `self.rerank(q, top_k=10)` for each new query; rerank only ranks the documents
+  from the last retrieve call. An empty result is the nonempty string
+  "No results found.", so do not use string truthiness to select a tool. Wrap a tool
   result in an Info to pass it to an agent, e.g.
   `ctx = Info('retrieved_context', 'retriever', self.rerank(q, 10), None, None, None, -1)`.
 - Config on `self`: `self.node_model`, `self.cot_instruction`, `self.max_round`,
@@ -81,7 +85,9 @@ EXAMPLE = {
         "    sub_tasks = []\n"
         "    agents = []\n"
         "    q = taskInfo.content\n"
-        "    ctx1 = Info('retrieved_context', 'retriever', self.rerank(q, 10) or self.retrieve(q, 20), None, None, None, -1)\n"
+        "    self.retrieve(q, top_k=20)\n"
+        "    context = self.rerank(q, top_k=10)\n"
+        "    ctx1 = Info('retrieved_context', 'retriever', context, None, None, None, -1)\n"
         "    a1 = LLMAgentBase(['thinking', 'answer'], 'Evidence Agent', model=self.node_model, temperature=0.0, usage_callback=self._usage_callback)\n"
         "    t1, ans1 = a1([taskInfo, ctx1], 'Sub-task 1: Identify the entities the question concerns and summarise the retrieved evidence about each.', is_sub_task=True)\n"
         "    agents.append(f'Evidence agent {a1.id} for sub-task 1: {t1.content}; answer {ans1.content}')\n"

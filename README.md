@@ -134,12 +134,21 @@ embedding model repository revisions are not yet pinned.
 
 ### MAS-Zero variant and resource accounting
 
-The current implementation is named `mas_zero_rag_self_feedback_v3` in metadata.
-It runs generated candidates in supervised workers; the earlier v2 condition
-remains available with `isolate_generated_code: false`.
+The current implementation is named `mas_zero_rag_self_feedback_v4` in metadata.
+It runs generated candidates in supervised workers; `isolate_generated_code: false`
+uses the separately labelled `mas_zero_rag_self_feedback_v4_in_process` variant.
 It retains seeds, per-question meta-iterations, internal feedback and selection.
 It is an adaptation of [upstream MAS-Zero](https://github.com/SalesforceAIResearch/MAS-Zero/tree/66b901264eaf809ed03beaf696d34660ae7de71e),
 with differences documented in the audit. `one_time` is rejected.
+
+Version 4 fixes two RAG adaptation defects found in the October 5 QL pilot:
+the generated-code example now retrieves before reranking (empty rerank results
+are truthy strings), and all four initial blocks pass their actual task and agent
+outputs to internal feedback. Rejected meta-model proposals retain their cost and
+now record the rejection reason and logical call ID. Search settings and resource
+limits are unchanged. Historical v3 runs retain their original metadata; the
+affected pilot cannot establish the corrected variant's quality or cost. Verify
+a small corrected pilot before running the full comparison.
 
 For a separately authorized technical pilot after environment/index preparation:
 
@@ -168,14 +177,14 @@ are reserved before instrumented calls; output capacity is reserved across
 threads. Token limits stop on observed usage, so input tokens can overshoot a
 threshold. Unknown usage stops further calls when a token threshold is set.
 Async agent phases are cancelled at their wall deadline, with per-request
-network timeouts as well. Generated Python in `adas_budgeted` and MAS-Zero v3
+network timeouts as well. Generated Python in `adas_budgeted` and MAS-Zero v3/v4
 runs in separate processes whose process groups are killed on timeout or
 budget stop. Model/tool calls go through the parent process and its ledger.
 These workers receive no API credentials or gold answer, and permit only the
 documented imports/helpers. This is not an OS security sandbox. A cancelled
 retrieval thread can finish its computation after the deadline, and cancelling
 an API request does not establish that the provider stopped billing. Such
-request usage remains unknown. MAS-Zero v2 and historical `adas` retain their
+request usage remains unknown. MAS-Zero with `isolate_generated_code: false` and historical `adas` retain their
 in-process execution semantics.
 CLI rejects resource-limit configurations for unsupported adapters.
 
@@ -274,7 +283,7 @@ unlabelled examples as MetaMAS. It makes one code proposal, with no accuracy
 selection, repair cycle, or fallback to a seed. Invalid construction fails the
 repeat. These choices differ from historical ADAS and are recorded as
 `adas_budgeted_cl_v1`. All node model/temperature settings are enforced by the
-parent; JSON format retries count as model attempts. MAS-Zero v3 uses the same
+parent; JSON format retries count as model attempts. MAS-Zero v3/v4 uses the same
 worker supervisor but preserves its generated node temperatures, five JSON
 attempts, candidate search and internal verification. The restricted execution
 policy is included in both generators' prompts.

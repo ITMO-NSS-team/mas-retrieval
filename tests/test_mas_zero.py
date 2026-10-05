@@ -6,17 +6,18 @@ import pytest
 
 from experiments.systems.mas_zero.adapter import MASZeroAdapter
 from experiments.systems.mas_zero import feedback
+from experiments.systems.mas_zero.prompts import EXAMPLE
 
 
 class Retriever:
     def retrieve(self, query, top_k):
-        return [NS(doc_id="source_0", title="Title", text="Evidence", score=1.0)]
+        return [NS(doc_id="source_0", title="Title", text="CORPUS_EVIDENCE_SENTINEL", score=1.0)]
 
     def rerank(self, query, docs, top_k):
         return docs
 
 
-def fake_model(monkeypatch, fitness="0.5", meta_code=None, fail_node=False):
+def fake_model(monkeypatch, fitness="0.5", meta_code=None, fail_node=False, node_outputs=None):
     payloads = []
     def create(**kwargs):
         payloads.append(kwargs)
@@ -30,7 +31,12 @@ def fake_model(monkeypatch, fitness="0.5", meta_code=None, fail_node=False):
         else:
             if fail_node:
                 raise ConnectionError("simulated infrastructure failure")
-            result = {"thinking": "distinctive reasoning", "answer": "42"}
+            result = {"thinking": "distinctive reasoning", "answer": "42",
+                      "feedback": "distinctive critique", "correct": "False"}
+            if node_outputs is not None:
+                result["thinking"] += f" {len(node_outputs)}"
+                result["feedback"] += f" {len(node_outputs)}"
+                node_outputs.append(result.copy())
         return NS(usage=NS(prompt_tokens=10, completion_tokens=5),
                   choices=[NS(message=NS(content=json.dumps(result)))])
     def factory(**kw):
@@ -52,7 +58,8 @@ def fake_model(monkeypatch, fitness="0.5", meta_code=None, fail_node=False):
 
 
 def adapter(tmp_path, **kwargs):
-    a = MASZeroAdapter(Retriever(), model="node", blocks=["COT"], **kwargs)
+    kwargs.setdefault("blocks", ["COT"])
+    a = MASZeroAdapter(Retriever(), model="node", **kwargs)
     a.set_benchmark_context("fake", "Description", ["unlabelled example"])
     a.set_run_context(artifact_dir=str(tmp_path), run_id="run", repeat=0, condition_id="test")
     return a
@@ -118,3 +125,58 @@ def test_invalid_selection_cannot_choose_empty_candidate(monkeypatch):
     monkeypatch.setattr(feedback, "_verifier_json", lambda *a, **k: {"selection": "0"})
     with pytest.raises(ValueError, match="unavailable"):
         feedback.self_verify("q", [{"answer": ""}, {"answer": "a"}, {"answer": "b"}], model="fake")
+
+
+def test_prompt_example_retrieves_before_reranking_in_fresh_worker(tmp_path, monkeypatch):
+    payloads = fake_model(monkeypatch, meta_code=EXAMPLE["code"])
+    _, log = adapter(tmp_path, n_generation=1, meta_model="meta").execute("q", "Question", "GOLD_SENTINEL")
+    assert log.status == "completed"
+    assert [c.tool_name for c in log.tool_calls] == ["retrieve", "rerank", "retrieve", "rerank"]
+    assert all(c.results == ["source_0"] for c in log.tool_calls)
+    # The first node request after the proposal is the generated Evidence Agent.
+    proposal_idx = next(i for i, p in enumerate(payloads) if p["model"] == "meta")
+    evidence_prompt = json.dumps(payloads[proposal_idx + 1]["messages"])
+    assert "CORPUS_EVIDENCE_SENTINEL" in evidence_prompt
+    assert "No results found." not in evidence_prompt
+    assert "GOLD_SENTINEL" not in json.dumps(payloads)
+    trace = json.loads(Path(log.artifact_paths["trace"]).read_text())
+    assert trace["candidates"][1]["agents"] and trace["candidates"][1]["sub_tasks"]
+
+
+@pytest.mark.parametrize("block", ["COT", "COT_SC", "Reflexion", "LLM_debate"])
+def test_seed_feedback_contains_every_agent_output(tmp_path, monkeypatch, block):
+    outputs = []
+    payloads = fake_model(monkeypatch, node_outputs=outputs)
+    _, log = adapter(tmp_path, blocks=[block], n_generation=0, max_round=2, max_sc=3).execute(
+        "q", "Question", "GOLD_SENTINEL")
+    assert log.status == "completed"
+    trace = json.loads(Path(log.artifact_paths["trace"]).read_text())
+    seed = trace["candidates"][0]
+    verifier = next(p for p in payloads if "meticulous evaluator" in p["messages"][0]["content"])
+    verifier_text = json.dumps(verifier["messages"])
+    assert "Whole-question task output" in seed["sub_tasks"]
+    for p, output in zip(payloads, outputs):
+        key = "feedback" if '"correct"' in p["messages"][0]["content"] else "thinking"
+        assert output[key] in seed["agents"]
+        assert output[key] in verifier_text
+    assert "GOLD_SENTINEL" not in json.dumps(payloads)
+
+
+@pytest.mark.parametrize("code,reason", [
+    (None, "required string keys"),
+    ("def wrong(): pass", "forward() signature"),
+    ("def forward(self, taskInfo):\n    broken (", "syntax error"),
+])
+def test_rejected_proposals_keep_cost_and_diagnostics(tmp_path, monkeypatch, code, reason):
+    fake_model(monkeypatch, meta_code=code)
+    answer, log = adapter(tmp_path, n_generation=1, meta_model="meta").execute("q", "Question", "gold")
+    assert answer == "42" and log.status == "completed"
+    diagnostics = log.resource_summary["diagnostics"]
+    assert len(diagnostics) == 2
+    assert all(d["stage"] == "meta_proposal" and reason in d["error"] for d in diagnostics)
+    calls = [c for c in log.llm_calls if c.phase == "construction"]
+    assert len(calls) == 2
+    assert sum(c.prompt_tokens + c.completion_tokens for c in calls) == 30
+    events = [json.loads(line) for line in Path(log.artifact_paths["events"]).read_text().splitlines()]
+    rejected = [e for e in events if e["kind"] == "proposal_rejected"]
+    assert {e["logical_call_id"] for e in rejected} == {c.logical_call_id for c in calls}

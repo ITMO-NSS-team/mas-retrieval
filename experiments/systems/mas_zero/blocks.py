@@ -29,7 +29,9 @@ COT = {
     cot_agent = LLMAgentBase(['thinking', 'answer'], 'Chain-of-Thought Agent', model=self.node_model, temperature=0.0, usage_callback=self._usage_callback)
     thinking, answer = cot_agent([taskInfo, context_info], cot_instruction)
 
-    final_answer = self.make_final_answer(thinking, answer)
+    sub_tasks = [f'Whole-question task output: thinking - {thinking.content}; answer - {answer.content}']
+    agents = [f'CoT agent {cot_agent.id}: thinking - {thinking.content}; answer - {answer.content}']
+    final_answer = self.make_final_answer(thinking, answer, sub_tasks, agents)
     return final_answer
 """,
 }
@@ -60,8 +62,10 @@ COT_SC = {
     thinking_mapping = {}
     answer_mapping = {}
     possible_answers = []
+    agents = []
     for i in range(N):
         thinking, answer = cot_agents[i]([taskInfo, context_info], cot_instruction)
+        agents.append(f'CoT sample {i}, agent {cot_agents[i].id}: thinking - {thinking.content}; answer - {answer.content}')
         possible_answers.append(answer.content)
         thinking_mapping[answer.content] = thinking
         answer_mapping[answer.content] = answer
@@ -74,7 +78,8 @@ COT_SC = {
         thinking = thinking_mapping[best]
         answer = answer_mapping[best]
 
-    final_answer = self.make_final_answer(thinking, answer)
+    sub_tasks = [f'Whole-question task output after majority vote: thinking - {thinking.content}; answer - {answer.content}']
+    final_answer = self.make_final_answer(thinking, answer, sub_tasks, agents)
     return final_answer
 """,
 }
@@ -102,18 +107,23 @@ Reflexion = {
     N_max = self.max_round
     cot_inputs = [taskInfo, context_info]
     thinking, answer = cot_agent(cot_inputs, cot_initial_instruction, 0)
+    agents = [f'CoT initial attempt, agent {cot_agent.id}: thinking - {thinking.content}; answer - {answer.content}']
 
     for i in range(N_max):
         feedback, correct = critic_agent([taskInfo, context_info, thinking, answer], critic_instruction, i)
+        agents.append(f'Critic round {i}, agent {critic_agent.id}: feedback - {feedback.content}; correct - {correct.content}')
         if correct.content.strip() == 'True':
             break
         refined_query = question + " " + feedback.content[:200]
-        new_context_reranked = self.rerank(refined_query, top_k=10) if self.retrieve(refined_query, top_k=20) else context_reranked
+        self.retrieve(refined_query, top_k=20)
+        new_context_reranked = self.rerank(refined_query, top_k=10)
         context_info = Info('retrieved_context', 'retriever', new_context_reranked, None, None, None, -1)
         cot_inputs = [taskInfo, context_info, thinking, answer, feedback]
         thinking, answer = cot_agent(cot_inputs, cot_reflect_instruction, i + 1)
+        agents.append(f'CoT revision {i + 1}, agent {cot_agent.id}: thinking - {thinking.content}; answer - {answer.content}')
 
-    final_answer = self.make_final_answer(thinking, answer)
+    sub_tasks = [f'Whole-question task output after reflection: thinking - {thinking.content}; answer - {answer.content}']
+    final_answer = self.make_final_answer(thinking, answer, sub_tasks, agents)
     return final_answer
 """,
 }
@@ -141,6 +151,7 @@ LLM_debate = {
     max_round = self.max_round
     all_thinking = [[] for _ in range(max_round)]
     all_answer = [[] for _ in range(max_round)]
+    agents = []
     for r in range(max_round):
         for i in range(len(debate_agents)):
             if r == 0:
@@ -150,12 +161,15 @@ LLM_debate = {
                 thinking, answer = debate_agents[i](input_infos, debate_instruction)
             all_thinking[r].append(thinking)
             all_answer[r].append(answer)
+            agents.append(f'Debate round {r}, agent {debate_agents[i].id}: thinking - {thinking.content}; answer - {answer.content}')
 
     thinking, answer = final_decision_agent(
         [taskInfo, context_info] + all_thinking[max_round-1] + all_answer[max_round-1],
         final_decision_instruction,
     )
-    final_answer = self.make_final_answer(thinking, answer)
+    agents.append(f'Final decision agent {final_decision_agent.id}: thinking - {thinking.content}; answer - {answer.content}')
+    sub_tasks = [f'Whole-question task output after debate: thinking - {thinking.content}; answer - {answer.content}']
+    final_answer = self.make_final_answer(thinking, answer, sub_tasks, agents)
     return final_answer
 """,
 }

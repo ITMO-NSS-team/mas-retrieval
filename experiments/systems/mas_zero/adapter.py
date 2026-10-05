@@ -148,7 +148,7 @@ class MASZeroAdapter(AbstractAdapter):
         return "mas_zero"
 
     def effective_config(self) -> dict[str, Any]:
-        return {"variant": "mas_zero_rag_self_feedback_v3" if self._isolate_code else "mas_zero_rag_self_feedback_v2", "generation_mode": "per_task",
+        return {"variant": "mas_zero_rag_self_feedback_v4" if self._isolate_code else "mas_zero_rag_self_feedback_v4_in_process", "generation_mode": "per_task",
                 "isolate_generated_code": self._isolate_code, "security_sandbox": False,
                 "node_temperature_policy": "generated", "worker_deadline": "remaining_full_answer_budget",
                 "model": self._model, "meta_model": self._meta_model,
@@ -215,27 +215,36 @@ class MASZeroAdapter(AbstractAdapter):
             max_retries=0,
             timeout=60.0,
         )
-        response = completion_request(client, usage_callback, uuid4().hex,
+        logical_call_id = uuid4().hex
+        response = completion_request(client, usage_callback, logical_call_id,
             model=self._meta_model,
             messages=messages,
             response_format={"type": "json_object"},
         )
         text = response.choices[0].message.content or ""
+        def reject(reason: str) -> None:
+            diagnostic = {"stage": "meta_proposal", "error": reason,
+                          "logical_call_id": logical_call_id}
+            self._diagnostics.append(diagnostic)
+            if isinstance(usage_callback, TrackedCompletion):
+                usage_callback.session.write({"kind": "proposal_rejected", **diagnostic})
+            logger.warning("Meta-model proposal rejected: %s", reason)
+
         try:
             solution = json.loads(text)
         except json.JSONDecodeError:
-            logger.warning("Meta-model returned invalid JSON")
+            reject("Meta-model returned invalid JSON")
             return None
         if not isinstance(solution, dict) or not all(isinstance(solution.get(k), str) for k in ("name", "thought", "code")):
-            logger.warning("Meta-model missing required keys")
+            reject("Meta-model missing required string keys: name, thought, code")
             return None
         if "def forward(self, taskInfo):" not in solution["code"]:
-            logger.warning("Generated code missing forward() signature")
+            reject("Generated code missing forward() signature")
             return None
         try:
             compile(solution["code"], "<generated>", "exec")
         except SyntaxError as e:
-            logger.warning("Generated code has syntax error: %s", e)
+            reject(f"Generated code has syntax error: {e}")
             return None
         return solution
 
