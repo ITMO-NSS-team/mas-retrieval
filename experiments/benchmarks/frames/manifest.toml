@@ -1,0 +1,9 @@
+name = "frames"
+collection = "frames"
+split = "test"
+metrics = ["exact_match", "f1", "context_recall", "llm_accuracy"]
+description = """
+Question answering over a shared frozen Wikipedia corpus. Questions can require
+combining multiple sources, numerical, tabular, temporal, or multi-constraint
+reasoning. Use retrieved evidence to give a concise factual answer.
+"""

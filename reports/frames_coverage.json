@@ -1,0 +1,138 @@
+{
+  "questions": 824,
+  "articles": 2486,
+  "chunks": 72002,
+  "missing": [
+    {
+      "question_id": "frames_0033",
+      "url": "https://en.wikipedia.org/wiki/Evening_(magazine)"
+    },
+    {
+      "question_id": "frames_0033",
+      "url": "https://en.wikipedia.org/wiki/Kodansha"
+    },
+    {
+      "question_id": "frames_0033",
+      "url": "https://en.wikipedia.org/wiki/Raw_Hero"
+    },
+    {
+      "question_id": "frames_0033",
+      "url": "https://en.wikipedia.org/wiki/Seiji_Noma"
+    },
+    {
+      "question_id": "frames_0141",
+      "url": "https://en.wikipedia.org/wiki/Nemanja_Markovi%C4%87"
+    },
+    {
+      "question_id": "frames_0203",
+      "url": "https://en.wikipedia.org/wiki/2014_Stanley_Cup_Finals"
+    },
+    {
+      "question_id": "frames_0203",
+      "url": "https://en.wikipedia.org/wiki/Dustin_Brown_(ice_hockey)"
+    },
+    {
+      "question_id": "frames_0244",
+      "url": "https://en.wikipedia.org/wiki/Williams_Grand_Prix_Engineering"
+    },
+    {
+      "question_id": "frames_0385",
+      "url": "https://en.wikipedia.org/wiki/List_of_Wimbledon_gentlemen's_singles_champions"
+    },
+    {
+      "question_id": "frames_0385",
+      "url": "https://en.wikipedia.org/wiki/Novak_Djokovic"
+    },
+    {
+      "question_id": "frames_0385",
+      "url": "https://en.wikipedia.org/wiki/Wimbledon_Championships"
+    },
+    {
+      "question_id": "frames_0485",
+      "url": "https://en.wikipedia.org/wiki/1928_in_music"
+    },
+    {
+      "question_id": "frames_0485",
+      "url": "https://en.wikipedia.org/wiki/List_of_mayors_of_Utica,_New_York"
+    },
+    {
+      "question_id": "frames_0515",
+      "url": "https://en.wikipedia.org/wiki/Demetrios_Vikelas"
+    },
+    {
+      "question_id": "frames_0515",
+      "url": "https://en.wikipedia.org/wiki/Ermoupoli"
+    },
+    {
+      "question_id": "frames_0515",
+      "url": "https://en.wikipedia.org/wiki/President_of_the_International_Olympic_Committee"
+    },
+    {
+      "question_id": "frames_0540",
+      "url": "https://en.wikipedia.org/wiki/Jack_Vance_(tennis)"
+    },
+    {
+      "question_id": "frames_0620",
+      "url": "https://en.wikipedia.org/wiki/Anastasia_(1997_film)"
+    },
+    {
+      "question_id": "frames_0620",
+      "url": "https://en.wikipedia.org/wiki/Grand_Duchess_Anastasia_Nikolaevna_of_Russia"
+    },
+    {
+      "question_id": "frames_0682",
+      "url": "https://en.wikipedia.org/wiki/Red_Stripe"
+    },
+    {
+      "question_id": "frames_0682",
+      "url": "https://en.wikipedia.org/wiki/Swedish_Match"
+    },
+    {
+      "question_id": "frames_0724",
+      "url": "https://en.wikipedia.org/wiki/Coal"
+    },
+    {
+      "question_id": "frames_0724",
+      "url": "https://en.wikipedia.org/wiki/Krampus"
+    },
+    {
+      "question_id": "frames_0724",
+      "url": "https://en.wikipedia.org/wiki/Wood"
+    },
+    {
+      "question_id": "frames_0732",
+      "url": "https://en.wikipedia.org/wiki/Illinois"
+    },
+    {
+      "question_id": "frames_0732",
+      "url": "https://en.wikipedia.org/wiki/Illinois_(fireboat)"
+    },
+    {
+      "question_id": "frames_0750",
+      "url": "https://en.wikipedia.org/wiki/36th_Annual_Grammy_Awards"
+    },
+    {
+      "question_id": "frames_0750",
+      "url": "https://en.wikipedia.org/wiki/66th_Academy_Awards"
+    },
+    {
+      "question_id": "frames_0750",
+      "url": "https://en.wikipedia.org/wiki/List_of_awards_and_nominations_received_by_Alan_Menken"
+    },
+    {
+      "question_id": "frames_0750",
+      "url": "https://en.wikipedia.org/wiki/List_of_awards_and_nominations_received_by_Tom_Hanks"
+    }
+  ],
+  "ambiguous": [],
+  "invalid_documents": [],
+  "conflicting_articles": [],
+  "complete": false,
+  "snapshot_sha256": "678631535d23d247d40af35548f1367393985b329952ad528d06ef08fdc2fb77",
+  "tsv_sha256": "4255093c93b595b5b04c7c8dde290b48ec87d72ca0fb0b760d9dd02740d669ff",
+  "builder_sha256": "9f9485e79cd9396c6ac62b639f72cb9223b9be59dbfcdb26cdd848548a5b1db6",
+  "archive_sha256": "f5e6d7c14f93cdd0af49f9f72e2311419af7c9b0634755fb2310058a84e36e80",
+  "raw_embedding_float32_bytes_at_1024_dims": 294920192,
+  "html_bytes": 1002723644,
+  "corpus_and_index_published": false
+}

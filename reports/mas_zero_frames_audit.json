@@ -1,0 +1,283 @@
+{
+  "date": "2026-10-02",
+  "branch": "codex/mas-zero-frames-audit",
+  "baseline_commit": "9b5926b5e7e2b930db291b1bc9246ece57222173",
+  "scope": "Engineering audit, code preparation, offline verification and proposed costs; no paid model runs",
+  "snapshot_difference": "Application code matched the handoff commit at start. Three untracked AGENTS.md files from the preceding task were preserved. No project virtualenv was present.",
+  "context": [
+    "/Users/vadim/dev/aamas-rag/codex-context/MAS_RETRIEVAL_HANDOFF.md",
+    "/Users/vadim/dev/aamas-rag/codex-context/PROJECT.md",
+    "/Users/vadim/dev/aamas-rag/codex-context/EVIDENCE.md",
+    "/Users/vadim/dev/aamas-rag/codex-context/MAS_ZERO_HISTORY_2026-10-02.json"
+  ],
+  "upstream_mas_zero": {
+    "repository": "https://github.com/SalesforceAIResearch/MAS-Zero",
+    "revision": "66b901264eaf809ed03beaf696d34660ae7de71e",
+    "files_reviewed": [
+      "README.md",
+      "search.py",
+      "main_question.py",
+      "main_judge.py",
+      "common.py",
+      "llm_judge/self_verifier_list_wise.py"
+    ],
+    "verdict": "The local implementation is a RAG adaptation, not an established faithful reproduction. Evaluate it as mas_zero_rag_self_feedback_v2 and report the differences.",
+    "adaptation_table": [
+      {
+        "stage": "Seed blocks",
+        "upstream": "COT, COT_SC, Reflexion, LLM_debate are offered by the README search command",
+        "local": "Same named block families; retrieval/reranking added and prompts rewritten for RAG",
+        "status": "retained_families_adapted_execution"
+      },
+      {
+        "stage": "Iterations",
+        "upstream": "main_question defaults n_generation=10; README example uses 5",
+        "local": "Default 10; effective value now saved; seed early stop can prevent meta-iterations",
+        "status": "configurable_variant"
+      },
+      {
+        "stage": "Block depth",
+        "upstream": "main_question defaults max_round=5, max_sc=5",
+        "local": "Defaults max_round=2, max_sc=3; three debate roles",
+        "status": "different_compute"
+      },
+      {
+        "stage": "Feedback",
+        "upstream": "Search feeds intermediate sub-task/agent outputs into reflection. README uses use_oracle_verifier with defer_verifier; deferred search assigns zero fitness",
+        "local": "An extra verifier JSON request produces continuous fitness after each candidate; TOO_HARD caps it at 0.5. Solvable/complete fields are requested but the scalar fitness controls stopping",
+        "status": "material_adaptation"
+      },
+      {
+        "stage": "Oracle flags",
+        "upstream": "main_question.score computes reference-based score on the oracle path. defer_verifier prevents score-based search stopping and substitutes zero fitness; gold remains in upstream reporting data. Non-deferred search also contains oracle-dependent debug exits",
+        "local": "No oracle scoring path. Gold is attached only to the returned evaluation log; payload tests use a sentinel",
+        "status": "no_external_labels_in_instrumented_payloads"
+      },
+      {
+        "stage": "Code repair",
+        "upstream": "search.py has a debug_max loop that asks the meta model to repair failing code",
+        "local": "No corresponding repair loop; debug_max was unused and is now rejected if explicitly supplied. Candidate errors are retained",
+        "status": "omitted_stage"
+      },
+      {
+        "stage": "Selection",
+        "upstream": "Separate self-verifier post-processes candidate/sub-task responses, filters/sorts them, applies max_response_per_sample and uses list-wise selection",
+        "local": "Inline selection over all nonempty candidates without upstream post-processing/deduplication. Now includes saved reasoning and full answer text; invalid selection is recorded and falls back to nonempty highest-fitness candidate",
+        "status": "adapted_selection"
+      },
+      {
+        "stage": "Prompts and models",
+        "upstream": "Sampler-specific JSON/XML paths and task-specific prompts; README uses GPT-4o, other supported backbones vary",
+        "local": "OpenAI-compatible JSON prompts, same configured node/meta/verifier by default (planned GPT-4o-mini). Bound node class prevents accidentally omitted model/accounting callback",
+        "status": "different_backbone_and_prompts"
+      },
+      {
+        "stage": "Stopping",
+        "upstream": "Depends on defer_verifier and selected scoring path",
+        "local": "Scalar self-fitness threshold 1.0, iteration cap, plus proposed cooperative resource limits. No new call after budget exhaustion; use best completed candidate or abstain",
+        "status": "explicit_variant"
+      },
+      {
+        "stage": "CL/QL",
+        "upstream": "Per-question search",
+        "local": "Native QL retained. Previously accepted one_time without changing behavior; now rejected",
+        "status": "metadata_bug_fixed"
+      }
+    ]
+  },
+  "code_changes": [
+    "Record MAS-Zero API attempts with phase, logical ID, measured latency, usage availability and errors; disable hidden SDK retries.",
+    "Persist start/end events and candidates during execution, with unique per-attempt paths beneath the run/system artifact directory.",
+    "Enforce request/tool reservations and cooperative observed-token/wall thresholds; report unknown usage and overshoot.",
+    "Preserve partial MAS-Zero cost, candidate errors, meta/selection fallback diagnostics and budget-stop answers.",
+    "Remove unused final meta proposal, restore reasoning to self-selection, preserve multiline final answers, reject unsupported CL.",
+    "Use a shared exec namespace so generated helper definitions/imports are visible to forward.",
+    "Separate retrieval, rerank, calculator and total tool counts. Legacy logs keep their historical semantics.",
+    "Record per-metric denominators/statuses; failed empty answers get zero answer accuracy, judge failures stay missing.",
+    "Checkpoint questions incrementally; record source/data hashes, installed packages, requested/effective adapter options and ordered IDs.",
+    "Cost known events by actual model instead of pricing all phases as the node model; unknown usage yields unavailable total USD.",
+    "Add pinned FRAMES questions, verified HTML snapshot manifests, table/list parsing, URL aliases, chunk/source mapping and coverage reports.",
+    "Freeze disjoint FRAMES pilot/final IDs and provide reproducible offline preparation and estimate scripts.",
+    "Make retrieval imports lazy for offline tests; constrain logly below incompatible 0.2."
+  ],
+  "accounting_limits": [
+    "Only MAS-Zero helper calls have new request-level enforcement. Other adapters explicitly reject resource_limits.",
+    "Generated Python is not isolated: imports can bypass helpers, introspection can access the host process, and infinite loops are not interrupted by cooperative wall checks.",
+    "No cross-process ledger/proxy yet covers AutoMAS, ADAS, single_agent or MCP; matched execution-budget comparisons are not ready.",
+    "Token caps are observed-usage stopping thresholds with output reservations, not hard billing ceilings. In-flight input usage can overshoot.",
+    "Network timeout bounds transport operations, not arbitrary Python execution or a strict full-request wall deadline.",
+    "Missing provider usage is unknown, not free; partial external-framework costs and failed external-judge requests are not fully instrumented.",
+    "Request phase latency sums and end-to-end question wall time are distinct. CL construction/amortization for other frameworks remains work.",
+    "Event append/flush protects against ordinary process failure, not guaranteed machine-power-loss durability. Unmatched starts require reconciliation.",
+    "Embedding model repository revisions remain unpinned; index metadata records this as null."
+  ],
+  "frames": {
+    "questions_revision": "58d9fb6330f3ab1316d1eca12e5e8ef23dcc22ef",
+    "questions_sha256": "4255093c93b595b5b04c7c8dde290b48ec87d72ca0fb0b760d9dd02740d669ff",
+    "questions": 824,
+    "normalized_question_url_references": 2673,
+    "unique_normalized_question_urls": 2517,
+    "source_count_range_from_all_fields": [
+      2,
+      23
+    ],
+    "url_mapping_entries": 2517,
+    "corpus_url": "https://inference.mlcommons-storage.org/frames-benchmark-dataset/doc_html/docs.tar.gz",
+    "corpus_archive_sha256": "f5e6d7c14f93cdd0af49f9f72e2311419af7c9b0634755fb2310058a84e36e80",
+    "corpus_compressed_bytes": 173138122,
+    "corpus_html_bytes": 1002723644,
+    "corpus_html_files": 2515,
+    "mlcommons_source_revision": "3fbc329939999c13d0a7b5e67fb2092287e06047",
+    "protocol": "Shared frozen corpus; BGE-M3/bge-reranker-v2-m3 proposed, 20 retrieve/10 rerank. Separate from MLPerf pipeline/results.",
+    "sampling": "Seed 20261002; 5 pilot and 200 final IDs in configs/frames_ids; no final accuracy observed.",
+    "parser_note": "Protection badges and category lists required parser fixes, covered by regression tests. Full 2515-file parsing completed without invalid documents. Parser uses BeautifulSoup/lxml; complex spans remain unexpanded.",
+    "coverage_status": "Full frozen snapshot parsed: 2486 distinct canonical articles, 72002 chunks; 30 missing references on 13 questions; 0 ambiguous aliases, 0 invalid HTML, 0 conflicting article versions. Build stopped before publishing corpus/index. No questions were removed.",
+    "index_status": "Not built; embedding/reranker models and full retrieval dependencies not installed",
+    "raw_url_gaps_report": "reports/frames_raw_url_gaps.json",
+    "raw_url_gap_note": "30 source references on 13 questions absent before canonical alias resolution; 28 use en.m.wikipedia.org, which the examined upstream downloader regex does not match. Two remaining URLs are in url_mapping.json but have no HTML file. Four frozen final IDs are affected; selection remains unchanged.",
+    "coverage_report": "reports/frames_coverage.json",
+    "required_next_step": "Repair the frozen corpus with versioned missing articles and documented provenance, or explicitly approve a protocol that retains the coverage gaps. Do not silently alter sampled IDs or substitute live pages. A replacement benchmark remains a separate decision."
+  },
+  "run_readiness": {
+    "offline_environment": "Python 3.12, minimal test/client/parser dependencies; original 56 tests passed before adding new tests",
+    "live_runtime": "Not validated; no OPENAI credentials tested, no paid calls made",
+    "historical_data": "Read-only; no archived result or article file changed",
+    "new_systems": "generated_single_agent and matched-budget ADAS control remain next integrations; no claim they are implemented",
+    "recommendation": "Approve only a technical pilot after corpus/environment/isolation gates; choose final budget settings from usage/feasibility before comparing accuracy"
+  },
+  "estimate": {
+    "configuration": "configs/run_plan.json",
+    "reproduction": "python scripts/estimate_runs.py --output reports/run_estimate.json",
+    "technical_pilot": "40 answers: 5 FinanceBench questions x 4 conditions; 5 FRAMES questions x 4 conditions; one repeat",
+    "final_matrix": "FinanceBench 150 x 3 x {MAS-Zero QL, MetaMAS CL, MetaMAS QL, Agentic RAG}; FRAMES 200 x 3 x {MetaMAS CL, Single Pass RAG, Agentic RAG, ADAS CL}",
+    "final_answers": 4200,
+    "final_system_and_judge_usd": [
+      32.1311925,
+      40.168548
+    ],
+    "planning_reserve_with_50_percent_contingency_usd": 60.252822,
+    "serial_hours_including_assumed_judge": [
+      91.2704478,
+      99.2153427
+    ],
+    "interpretation": "Only MAS-Zero usage/time is extrapolated from measured historical pilots. Other rows use explicit token/time assumptions. This is not a provider quote, confidence interval or spending cap.",
+    "optional_frames_mas_zero": "Excluded from recommendation: 600 extra answers add about USD 27.23-37.95 for MAS-Zero alone, assuming FinanceBench usage transfers",
+    "disk": "Measured frozen inputs: 173138122 archive bytes + 1002723644 HTML bytes. At 72002 chunks x 1024 float32 dimensions, bare embeddings need 294920192 bytes; Chroma/HNSW/text add overhead. Allocate 10 GB data/index/logs plus about 5 GB weights as a planning allowance, not measured final size.",
+    "parallelism": "CLI currently sequential; idealized division by worker count is not a measured runtime estimate"
+  },
+  "provenance": {
+    "context_sha256": {
+      "/Users/vadim/dev/aamas-rag/codex-context/MAS_RETRIEVAL_HANDOFF.md": "bc002815847d3b3a9529ccfad6701eb579b94da02459f5f6aa26956b38db7b47",
+      "/Users/vadim/dev/aamas-rag/codex-context/PROJECT.md": "f11dc619ca33c579d79ca899382d620de77884ae9e54262563a2bc3960ec6254",
+      "/Users/vadim/dev/aamas-rag/codex-context/EVIDENCE.md": "9a5002ba48ce2815be98a0b56e39338d044f5ce112363cdcd60508cf3e7f4091",
+      "/Users/vadim/dev/aamas-rag/codex-context/MAS_ZERO_HISTORY_2026-10-02.json": "a7e4b68c744a5e4a866bb1bcaa4d796a9f0bd3ff62df734c55952f1faa250849"
+    },
+    "upstream_download_sha256": {
+      "/tmp/mas-zero-search.py": "b9c04a55b77ff82757ddfa492e814ee8f97b21be70c0b17ee4afd733509890ab",
+      "/tmp/mas-zero-main.py": "f5d94624db4a9fed008cb6e7e4a10f7495e19fea96ffbbeb99ca58e3c7c8095a",
+      "/tmp/mas-zero-judge.py": "f841b910ebaaf66803036bbad92f4e18f4be81233c854ecff99b8d4d1ee7aca5",
+      "/tmp/mas-zero-common.py": "f753e2ef7672003a30549655a11e988ca4b9cc551358955123feb57e55bcafd3",
+      "/tmp/mas-zero-self-verifier.py": "2e5ea1e5bb0d436f3e4c254334811b402d3631f50da36aa2b623cd4488212da7"
+    }
+  },
+  "environment": {
+    "Pygments": "2.21.0",
+    "annotated-types": "0.8.0",
+    "anyio": "4.15.1",
+    "backoff": "2.2.1",
+    "beautifulsoup4": "4.15.0",
+    "certifi": "2026.7.22",
+    "distro": "1.9.0",
+    "genai-prices": "0.1.4",
+    "h11": "0.16.0",
+    "httpcore": "1.0.9",
+    "httpcore2": "2.13.1",
+    "httpx": "0.28.1",
+    "httpx2": "2.13.1",
+    "idna": "3.20",
+    "iniconfig": "2.3.0",
+    "jiter": "0.17.0",
+    "logly": "0.1.6",
+    "lxml": "6.1.3",
+    "markdown-it-py": "4.2.0",
+    "mdurl": "0.1.2",
+    "numpy": "2.4.4",
+    "openai": "2.54.0",
+    "packaging": "26.3",
+    "pluggy": "1.6.0",
+    "pydantic": "2.13.5",
+    "pydantic-monty": "0.0.18",
+    "pydantic-monty-client": "1.0.0",
+    "pydantic-monty-runtime": "1.0.0",
+    "pydantic-settings": "2.15.0",
+    "pydantic_core": "2.46.5",
+    "pytest": "9.1.1",
+    "python-dotenv": "1.2.4",
+    "rich": "15.0.0",
+    "sniffio": "1.3.1",
+    "soupsieve": "2.9.2",
+    "tqdm": "4.70.1",
+    "truststore": "0.10.4",
+    "typing-inspection": "0.4.4",
+    "typing_extensions": "4.16.0"
+  },
+  "offline_verification": {
+    "report": "reports/offline_verification.json",
+    "tests_passed": 81,
+    "suite_errors": 0,
+    "suite_failures": 0,
+    "checks": [
+      "real 824-row TSV conversion and pinned checksum",
+      "fake-model MAS-Zero seed/generation/feedback/selection",
+      "gold sentinel absent from model payloads",
+      "partial cost and unknown usage after errors",
+      "concurrent request reservation",
+      "retry logical IDs and no duplicate usage",
+      "budget stop without extra finalization call",
+      "separate artifacts for repeated question IDs",
+      "tool counters",
+      "missing judge denominators and checkpoints",
+      "costs by actual model",
+      "HTML tables, dates, category lists and redirects",
+      "modified data rejected by SHA mismatch; missing evidence retained",
+      "native QL and unsupported budget preflight rejection"
+    ]
+  },
+  "readiness_gates": [
+    {
+      "item": "MAS-Zero offline algorithm/accounting",
+      "status": "passed",
+      "details": "81-test suite includes all core stages with fake models; live output quality/backbone behavior untested."
+    },
+    {
+      "item": "MAS-Zero upstream fidelity",
+      "status": "adapted_variant",
+      "details": "No faithful reproduction claim; repair loop and upstream post-processing are omitted, feedback/stopping and block depths differ."
+    },
+    {
+      "item": "FRAMES question conversion and sampling",
+      "status": "passed",
+      "details": "824 rows, pinned checksum/revision; 5 pilot + 200 disjoint final IDs."
+    },
+    {
+      "item": "FRAMES frozen corpus",
+      "status": "blocked_by_missing_evidence",
+      "details": "30 URLs missing for 13 questions, including 4 final-sample IDs. Coverage report is complete; corpus/index not published."
+    },
+    {
+      "item": "Common strict budgets",
+      "status": "not_ready",
+      "details": "Current implementation covers cooperative MAS-Zero helpers. Need process isolation and shared transport for other frameworks/MCP."
+    },
+    {
+      "item": "Live run environment",
+      "status": "not_ready",
+      "details": "Minimal offline .venv only. Full dependencies, external AutoMAS source, embeddings, index, provider credentials/quota and isolation must be verified."
+    },
+    {
+      "item": "Paid runs",
+      "status": "not_started",
+      "details": "No API budget or final run package approved in supplied context."
+    }
+  ]
+}

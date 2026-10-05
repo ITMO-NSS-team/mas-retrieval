@@ -1,0 +1,44 @@
+{
+  "status": "proposal_no_paid_runs_authorized",
+  "model": "openai/gpt-4o-mini",
+  "judge_model": "openai/gpt-4o-mini",
+  "price_verified_date": "2026-10-02",
+  "price_source": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+  "usd_per_million_input": 0.15,
+  "usd_per_million_output": 0.60,
+  "pricing_scope": "standard uncached OpenAI text; gateway fees not included",
+  "historical_mas_zero_pilots": [
+    {"run_id": "20260601_145842_financebench_8ebfb5", "n": 10, "input": 343076.8, "output": 19635.2, "seconds": 282.2969156508},
+    {"run_id": "20260610_164057_financebench_8f7511", "n": 3, "input": 249913.66666666666, "output": 13158, "seconds": 345.8560752417}
+  ],
+  "history_source": "/Users/vadim/dev/aamas-rag/codex-context/MAS_ZERO_HISTORY_2026-10-02.json",
+  "assumed_per_answer_usage": {
+    "automas_cl": {"input": 8000, "output": 500, "seconds": 30},
+    "automas_ql": {"input": 28000, "output": 2500, "seconds": 90},
+    "single_agent": {"input": 15000, "output": 1000, "seconds": 60},
+    "naive_rag": {"input": 5000, "output": 256, "seconds": 15},
+    "adas_cl": {"input": 20000, "output": 1500, "seconds": 60}
+  },
+  "assumed_cl_construction": {"input": 30000, "output": 3000, "seconds": 60},
+  "assumed_external_judge": {"input": 2000, "output": 150, "seconds": 5},
+  "pilot": [
+    {"benchmark": "financebench", "questions": 5, "repeats": 1, "systems": ["mas_zero", "automas_cl", "automas_ql", "single_agent"]},
+    {"benchmark": "frames", "questions": 5, "repeats": 1, "systems": ["automas_cl", "naive_rag", "single_agent", "adas_cl"]}
+  ],
+  "recommended_final": [
+    {"benchmark": "financebench", "questions": 150, "repeats": 3, "systems": ["mas_zero", "automas_cl", "automas_ql", "single_agent"]},
+    {"benchmark": "frames", "questions": 200, "repeats": 3, "systems": ["automas_cl", "naive_rag", "single_agent", "adas_cl"]}
+  ],
+  "contingency_fraction": 0.5,
+  "assumptions": [
+    "MAS-Zero range spans two overlapping small pilot means, not a confidence interval or cap.",
+    "All other usage and latency inputs are planning assumptions, not new measurements.",
+    "New MAS-Zero instrumentation, full selection context and output limit can change usage.",
+    "Sequential wall time includes assumed external judging; parallel speedup is not measured.",
+    "FinanceBench pilot is technical only; the proposed full-150 final set includes those IDs. Do not tune by pilot accuracy.",
+    "FRAMES pilot/final IDs are disjoint and frozen in configs/frames_ids.",
+    "Common execution-budget experiments and generated_single_agent remain separate implementation work.",
+    "Full cost measurement for other frameworks, frozen corpus coverage and index readiness gate final runs.",
+    "Local indexing compute, storage, operator time and gateway fees are excluded."
+  ]
+}

@@ -1,0 +1,289 @@
+{
+  "pilot": {
+    "rows": [
+      {
+        "benchmark": "financebench",
+        "system": "mas_zero",
+        "answers": 5,
+        "basis": "historical_pilot_extrapolation",
+        "system_usd": [
+          0.22690924999999998,
+          0.3162132
+        ],
+        "judge_usd": 0.00195,
+        "serial_hours_including_judge": [
+          0.3990234939594444,
+          0.4873001045023611
+        ]
+      },
+      {
+        "benchmark": "financebench",
+        "system": "automas_cl",
+        "answers": 5,
+        "basis": "explicit_planning_assumption",
+        "system_usd": [
+          0.0138,
+          0.0138
+        ],
+        "judge_usd": 0.00195,
+        "serial_hours_including_judge": [
+          0.06527777777777778,
+          0.06527777777777778
+        ]
+      },
+      {
+        "benchmark": "financebench",
+        "system": "automas_ql",
+        "answers": 5,
+        "basis": "explicit_planning_assumption",
+        "system_usd": [
+          0.0285,
+          0.0285
+        ],
+        "judge_usd": 0.00195,
+        "serial_hours_including_judge": [
+          0.13194444444444445,
+          0.13194444444444445
+        ]
+      },
+      {
+        "benchmark": "financebench",
+        "system": "single_agent",
+        "answers": 5,
+        "basis": "explicit_planning_assumption",
+        "system_usd": [
+          0.01425,
+          0.01425
+        ],
+        "judge_usd": 0.00195,
+        "serial_hours_including_judge": [
+          0.09027777777777778,
+          0.09027777777777778
+        ]
+      },
+      {
+        "benchmark": "frames",
+        "system": "automas_cl",
+        "answers": 5,
+        "basis": "explicit_planning_assumption",
+        "system_usd": [
+          0.0138,
+          0.0138
+        ],
+        "judge_usd": 0.00195,
+        "serial_hours_including_judge": [
+          0.06527777777777778,
+          0.06527777777777778
+        ]
+      },
+      {
+        "benchmark": "frames",
+        "system": "naive_rag",
+        "answers": 5,
+        "basis": "explicit_planning_assumption",
+        "system_usd": [
+          0.004518,
+          0.004518
+        ],
+        "judge_usd": 0.00195,
+        "serial_hours_including_judge": [
+          0.027777777777777776,
+          0.027777777777777776
+        ]
+      },
+      {
+        "benchmark": "frames",
+        "system": "single_agent",
+        "answers": 5,
+        "basis": "explicit_planning_assumption",
+        "system_usd": [
+          0.01425,
+          0.01425
+        ],
+        "judge_usd": 0.00195,
+        "serial_hours_including_judge": [
+          0.09027777777777778,
+          0.09027777777777778
+        ]
+      },
+      {
+        "benchmark": "frames",
+        "system": "adas_cl",
+        "answers": 5,
+        "basis": "explicit_planning_assumption",
+        "system_usd": [
+          0.0258,
+          0.0258
+        ],
+        "judge_usd": 0.00195,
+        "serial_hours_including_judge": [
+          0.10694444444444444,
+          0.10694444444444444
+        ]
+      }
+    ],
+    "answers": 40,
+    "total_usd": [
+      0.3574272499999999,
+      0.44673119999999994
+    ],
+    "planning_reserve_usd": 0.6700967999999999,
+    "serial_hours": [
+      0.9768012717372222,
+      1.065077882280139
+    ]
+  },
+  "recommended_final": {
+    "rows": [
+      {
+        "benchmark": "financebench",
+        "system": "mas_zero",
+        "answers": 450,
+        "basis": "historical_pilot_extrapolation",
+        "system_usd": [
+          20.421832499999997,
+          28.459188
+        ],
+        "judge_usd": 0.1755,
+        "serial_hours_including_judge": [
+          35.91211445635,
+          43.8570094052125
+        ]
+      },
+      {
+        "benchmark": "financebench",
+        "system": "automas_cl",
+        "answers": 450,
+        "basis": "explicit_planning_assumption",
+        "system_usd": [
+          0.6939000000000001,
+          0.6939000000000001
+        ],
+        "judge_usd": 0.1755,
+        "serial_hours_including_judge": [
+          4.425,
+          4.425
+        ]
+      },
+      {
+        "benchmark": "financebench",
+        "system": "automas_ql",
+        "answers": 450,
+        "basis": "explicit_planning_assumption",
+        "system_usd": [
+          2.565,
+          2.565
+        ],
+        "judge_usd": 0.1755,
+        "serial_hours_including_judge": [
+          11.875,
+          11.875
+        ]
+      },
+      {
+        "benchmark": "financebench",
+        "system": "single_agent",
+        "answers": 450,
+        "basis": "explicit_planning_assumption",
+        "system_usd": [
+          1.2825,
+          1.2825
+        ],
+        "judge_usd": 0.1755,
+        "serial_hours_including_judge": [
+          8.125,
+          8.125
+        ]
+      },
+      {
+        "benchmark": "frames",
+        "system": "automas_cl",
+        "answers": 600,
+        "basis": "explicit_planning_assumption",
+        "system_usd": [
+          0.9189,
+          0.9189
+        ],
+        "judge_usd": 0.23399999999999999,
+        "serial_hours_including_judge": [
+          5.883333333333334,
+          5.883333333333334
+        ]
+      },
+      {
+        "benchmark": "frames",
+        "system": "naive_rag",
+        "answers": 600,
+        "basis": "explicit_planning_assumption",
+        "system_usd": [
+          0.5421600000000001,
+          0.5421600000000001
+        ],
+        "judge_usd": 0.23399999999999999,
+        "serial_hours_including_judge": [
+          3.3333333333333335,
+          3.3333333333333335
+        ]
+      },
+      {
+        "benchmark": "frames",
+        "system": "single_agent",
+        "answers": 600,
+        "basis": "explicit_planning_assumption",
+        "system_usd": [
+          1.71,
+          1.71
+        ],
+        "judge_usd": 0.23399999999999999,
+        "serial_hours_including_judge": [
+          10.833333333333334,
+          10.833333333333334
+        ]
+      },
+      {
+        "benchmark": "frames",
+        "system": "adas_cl",
+        "answers": 600,
+        "basis": "explicit_planning_assumption",
+        "system_usd": [
+          2.3588999999999998,
+          2.3588999999999998
+        ],
+        "judge_usd": 0.23399999999999999,
+        "serial_hours_including_judge": [
+          10.883333333333333,
+          10.883333333333333
+        ]
+      }
+    ],
+    "answers": 4200,
+    "total_usd": [
+      32.13119249999999,
+      40.168548
+    ],
+    "planning_reserve_usd": 60.252822,
+    "serial_hours": [
+      91.27044778968332,
+      99.21534273854584
+    ]
+  },
+  "optional_mas_zero_frames_200x3": {
+    "system_usd": [
+      27.229109999999995,
+      37.945584000000004
+    ],
+    "warning": "Assumes FinanceBench usage transfers to FRAMES; excluded from recommended package"
+  },
+  "price_source": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+  "assumptions": [
+    "MAS-Zero range spans two overlapping small pilot means, not a confidence interval or cap.",
+    "All other usage and latency inputs are planning assumptions, not new measurements.",
+    "New MAS-Zero instrumentation, full selection context and output limit can change usage.",
+    "Sequential wall time includes assumed external judging; parallel speedup is not measured.",
+    "FinanceBench pilot is technical only; the proposed full-150 final set includes those IDs. Do not tune by pilot accuracy.",
+    "FRAMES pilot/final IDs are disjoint and frozen in configs/frames_ids.",
+    "Common execution-budget experiments and generated_single_agent remain separate implementation work.",
+    "Full cost measurement for other frameworks, frozen corpus coverage and index readiness gate final runs.",
+    "Local indexing compute, storage, operator time and gateway fees are excluded."
+  ]
+}

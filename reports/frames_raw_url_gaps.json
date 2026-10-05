@@ -1,0 +1,177 @@
+{
+  "basis": "Original URLs in frozen snapshot manifest before canonical redirect resolution",
+  "missing_references": [
+    {
+      "question_id": "frames_0033",
+      "url": "https://en.wikipedia.org/wiki/Evening_(magazine)",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0033",
+      "url": "https://en.wikipedia.org/wiki/Kodansha",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0033",
+      "url": "https://en.wikipedia.org/wiki/Raw_Hero",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0033",
+      "url": "https://en.wikipedia.org/wiki/Seiji_Noma",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0141",
+      "url": "https://en.wikipedia.org/wiki/Nemanja_Markovi%C4%87",
+      "mobile_in_source": false
+    },
+    {
+      "question_id": "frames_0203",
+      "url": "https://en.wikipedia.org/wiki/2014_Stanley_Cup_Finals",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0203",
+      "url": "https://en.wikipedia.org/wiki/Dustin_Brown_(ice_hockey)",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0244",
+      "url": "https://en.wikipedia.org/wiki/Williams_Grand_Prix_Engineering",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0385",
+      "url": "https://en.wikipedia.org/wiki/List_of_Wimbledon_gentlemen's_singles_champions",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0385",
+      "url": "https://en.wikipedia.org/wiki/Novak_Djokovic",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0385",
+      "url": "https://en.wikipedia.org/wiki/Wimbledon_Championships",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0485",
+      "url": "https://en.wikipedia.org/wiki/1928_in_music",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0485",
+      "url": "https://en.wikipedia.org/wiki/List_of_mayors_of_Utica,_New_York",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0515",
+      "url": "https://en.wikipedia.org/wiki/Demetrios_Vikelas",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0515",
+      "url": "https://en.wikipedia.org/wiki/Ermoupoli",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0515",
+      "url": "https://en.wikipedia.org/wiki/President_of_the_International_Olympic_Committee",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0540",
+      "url": "https://en.wikipedia.org/wiki/Jack_Vance_(tennis)",
+      "mobile_in_source": false
+    },
+    {
+      "question_id": "frames_0620",
+      "url": "https://en.wikipedia.org/wiki/Anastasia_(1997_film)",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0620",
+      "url": "https://en.wikipedia.org/wiki/Grand_Duchess_Anastasia_Nikolaevna_of_Russia",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0682",
+      "url": "https://en.wikipedia.org/wiki/Red_Stripe",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0682",
+      "url": "https://en.wikipedia.org/wiki/Swedish_Match",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0724",
+      "url": "https://en.wikipedia.org/wiki/Coal",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0724",
+      "url": "https://en.wikipedia.org/wiki/Krampus",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0724",
+      "url": "https://en.wikipedia.org/wiki/Wood",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0732",
+      "url": "https://en.wikipedia.org/wiki/Illinois",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0732",
+      "url": "https://en.wikipedia.org/wiki/Illinois_(fireboat)",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0750",
+      "url": "https://en.wikipedia.org/wiki/36th_Annual_Grammy_Awards",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0750",
+      "url": "https://en.wikipedia.org/wiki/66th_Academy_Awards",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0750",
+      "url": "https://en.wikipedia.org/wiki/List_of_awards_and_nominations_received_by_Alan_Menken",
+      "mobile_in_source": true
+    },
+    {
+      "question_id": "frames_0750",
+      "url": "https://en.wikipedia.org/wiki/List_of_awards_and_nominations_received_by_Tom_Hanks",
+      "mobile_in_source": true
+    }
+  ],
+  "affected_questions": [
+    "frames_0033",
+    "frames_0141",
+    "frames_0203",
+    "frames_0244",
+    "frames_0385",
+    "frames_0485",
+    "frames_0515",
+    "frames_0540",
+    "frames_0620",
+    "frames_0682",
+    "frames_0724",
+    "frames_0732",
+    "frames_0750"
+  ],
+  "pilot_overlap": [],
+  "final_overlap": [
+    "frames_0244",
+    "frames_0385",
+    "frames_0682",
+    "frames_0724"
+  ]
+}
