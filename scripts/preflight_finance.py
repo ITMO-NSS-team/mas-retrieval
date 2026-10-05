@@ -30,6 +30,21 @@ def inspect_data(root):
     if problems:
         return metadata, problems
     questions = [json.loads(line) for line in (root / "questions.jsonl").read_text().splitlines() if line.strip()]
+    # Presence alone cannot detect the historical off-by-one: most wrong IDs
+    # still name a real corpus page. Check against the original evidence too.
+    mapping_mismatches = []
+    if any(q.get("evidence") for q in questions):
+        from marlib.benchmarks import discover, get_builder
+        discover()
+        builder = get_builder("financebench")
+        for q in questions:
+            if q.get("evidence"):
+                expected = builder.evidence_doc_ids(q)
+                if sorted(q.get("gold_doc_ids") or []) != expected:
+                    mapping_mismatches.append({"id": q.get("id"), "expected": expected,
+                                               "actual": q.get("gold_doc_ids")})
+    if mapping_mismatches:
+        problems.append(f"Incorrect evidence page mapping for {len(mapping_mismatches)} questions; run scripts/repair_finance_evidence.py")
     ids, seen_docs = set(), set()
     for q in questions:
         if not q.get("id") or q["id"] in ids:
@@ -50,6 +65,7 @@ def inspect_data(root):
     if len(questions) != 150:
         problems.append(f"Expected 150 FinanceBench questions; found {len(questions)}")
     metadata.update(question_count=len(questions), corpus_count=len(seen_docs), missing_evidence=missing,
+                    evidence_mapping_mismatches=mapping_mismatches,
                     pilot_ids=[q["id"] for q in questions[:5]], ordered_question_ids=[q["id"] for q in questions])
     return metadata, problems
 

@@ -9,6 +9,76 @@ from marlib.tracing.resources import BudgetExhausted, ResourceLimits, ResourceSe
 from marlib.tracing.tracker import TokenTracker
 
 
+@pytest.fixture
+def finance_builder():
+    from marlib.benchmarks import discover, get_builder
+    discover()
+    return get_builder("financebench")
+
+
+def test_finance_zero_based_evidence_maps_to_one_based_corpus(finance_builder):
+    assert finance_builder.evidence_doc_ids({"doc_name": "fallback", "evidence": [
+        {"doc_name": "3M_2023Q2_10Q", "evidence_page_num": 0},
+        {"doc_name": "AES_2022_10K", "evidence_page_num": 131},
+        {"evidence_doc_name": "Other_2022_10K", "evidence_page_num": 2},
+        {"evidence_page_num": 4},
+    ]}) == ["3m_2023q2_10q_p1", "aes_2022_10k_p132", "fallback_p5", "other_2022_10k_p3"]
+    with pytest.raises(ValueError, match="Invalid zero-based"):
+        finance_builder.evidence_doc_ids({"doc_name": "Doc", "evidence": [{"evidence_page_num": -1}]})
+
+
+def test_finance_repair_preserves_questions_corpus_and_backup(tmp_path, finance_builder):
+    questions = [{"id": str(i), "question": f"Q{i}", "answer": f"A{i}", "doc_name": "Doc",
+                  "evidence": [{"evidence_page_num": i}], "gold_doc_ids": [f"doc_p{i}"]}
+                 for i in range(150)]
+    path = tmp_path / "questions.jsonl"
+    original = "\n".join(json.dumps(q) for q in questions).encode()
+    path.write_bytes(original)
+    corpus = tmp_path / "corpus.jsonl"
+    corpus.write_text("unchanged corpus")
+    assert finance_builder.repair_evidence_ids(tmp_path)["changed_questions"] == 150
+    assert path.read_bytes() == original
+    result = finance_builder.repair_evidence_ids(tmp_path, apply=True)
+    assert result["applied"]
+    assert (tmp_path / "questions.before_evidence_fix.jsonl").read_bytes() == original
+    corrected = [json.loads(line) for line in path.read_text().splitlines()]
+    assert len(corrected) == 150
+    for before, after in zip(questions, corrected):
+        assert after == {**before, "gold_doc_ids": [f"doc_p{int(before['id']) + 1}"]}
+    assert corpus.read_text() == "unchanged corpus"
+    assert not finance_builder.repair_evidence_ids(tmp_path, apply=True)["applied"]
+
+
+def test_finance_repair_refuses_missing_evidence_and_existing_backup(tmp_path, finance_builder):
+    path = tmp_path / "questions.jsonl"
+    original = json.dumps({"id": "q", "gold_doc_ids": ["doc_p0"]})
+    path.write_text(original)
+    with pytest.raises(ValueError, match="No usable raw evidence"):
+        finance_builder.repair_evidence_ids(tmp_path, apply=True)
+    assert path.read_text() == original
+    assert not (tmp_path / "questions.before_evidence_fix.jsonl").exists()
+    original = json.dumps({"id": "q", "doc_name": "Doc", "evidence": [{"evidence_page_num": 0}]})
+    path.write_text(original)
+    (tmp_path / "questions.before_evidence_fix.jsonl").write_text("previous backup")
+    with pytest.raises(FileExistsError):
+        finance_builder.repair_evidence_ids(tmp_path, apply=True)
+    assert path.read_text() == original
+
+
+def test_preflight_detects_wrong_mapping_even_if_old_page_exists(tmp_path, finance_builder):
+    questions = [{"id": str(i), "doc_name": "Doc", "evidence": [{"evidence_page_num": 1}],
+                  "gold_doc_ids": ["doc_p1"]} for i in range(150)]
+    (tmp_path / "questions.jsonl").write_text("\n".join(json.dumps(q) for q in questions))
+    (tmp_path / "corpus.jsonl").write_text("\n".join(json.dumps({"doc_id": doc_id}) for doc_id in ["doc_p1", "doc_p2"]))
+    data, problems = inspect_data(tmp_path)
+    assert not data["missing_evidence"]
+    assert len(data["evidence_mapping_mismatches"]) == 150
+    assert any("Incorrect evidence page mapping" in p for p in problems)
+    finance_builder.repair_evidence_ids(tmp_path, apply=True)
+    data, problems = inspect_data(tmp_path)
+    assert not problems and not data["evidence_mapping_mismatches"]
+
+
 def test_preflight_keeps_all_questions_and_reports_missing_evidence(tmp_path):
     questions = [{"id": str(i), "gold_doc_ids": ["found" if i else "missing"]} for i in range(150)]
     (tmp_path / "questions.jsonl").write_text("\n".join(json.dumps(q) for q in questions))

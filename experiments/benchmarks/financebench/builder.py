@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
+import tempfile
 import urllib.parse
 import urllib.request
 
@@ -20,7 +22,7 @@ _PDF_BASE_URL = "https://raw.githubusercontent.com/patronus-ai/financebench/main
 
 
 def _gold_doc_ids(ex: dict) -> list[str]:
-    """Gold evidence page ids ("<slug>_p<page>") from a FinanceBench example."""
+    """Convert zero-based FinanceBench evidence pages to one-based corpus IDs."""
     evidence = ex.get("evidence") or []
     if not isinstance(evidence, list):
         evidence = [evidence]
@@ -28,16 +30,52 @@ def _gold_doc_ids(ex: dict) -> list[str]:
     for ev in evidence:
         if not isinstance(ev, dict):
             continue
-        doc_name = ev.get("doc_name") or ex.get("doc_name") or ""
+        doc_name = ev.get("doc_name") or ev.get("evidence_doc_name") or ex.get("doc_name") or ""
         page_num = ev.get("evidence_page_num")
         if doc_name and page_num is not None:
-            ids.append(f"{slugify(doc_name)}_p{page_num}")
+            if isinstance(page_num, bool) or not isinstance(page_num, int) or page_num < 0:
+                raise ValueError(f"Invalid zero-based evidence page: {page_num!r}")
+            ids.append(f"{slugify(doc_name)}_p{page_num + 1}")
     return sorted(set(ids))
+
+
+def repair_evidence_ids(root: Path, apply: bool = False) -> dict:
+    """Recompute mappings from raw evidence; preserve all other question fields."""
+    path = root / "questions.jsonl"
+    original = path.read_bytes()
+    questions = [json.loads(line) for line in original.splitlines() if line.strip()]
+    changes = []
+    for q in questions:
+        expected = _gold_doc_ids(q)
+        if not expected:
+            raise ValueError(f"No usable raw evidence for {q.get('id')}; refusing migration")
+        if q.get("gold_doc_ids") != expected:
+            changes.append({"id": q["id"], "old": q.get("gold_doc_ids"), "new": expected})
+            q["gold_doc_ids"] = expected
+    backup = path.with_name("questions.before_evidence_fix.jsonl")
+    if apply and changes:
+        # Never overwrite an earlier backup. All questions are validated first.
+        with backup.open("xb") as f:
+            f.write(original)
+        with tempfile.NamedTemporaryFile(dir=root, mode="w", encoding="utf-8", delete=False) as f:
+            temporary = Path(f.name)
+            for q in questions:
+                f.write(json.dumps(q, ensure_ascii=False) + "\n")
+        try:
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+    return {"question_count": len(questions), "changed_questions": len(changes),
+            "applied": bool(apply and changes), "backup": str(backup) if apply and changes else None,
+            "changes": changes}
 
 
 @register("financebench")
 class FinanceBenchBuilder(BenchmarkBuilder):
     """Builder for the FinanceBench benchmark."""
+
+    evidence_doc_ids = staticmethod(_gold_doc_ids)
+    repair_evidence_ids = staticmethod(repair_evidence_ids)
 
     def download(self, spec: BenchmarkSpec) -> None:
         """Download the FinanceBench questions and the referenced filing PDFs.
@@ -182,7 +220,7 @@ class FinanceBenchBuilder(BenchmarkBuilder):
                 if len(text.strip()) < 50:  # cover/image-only pages
                     skipped_empty += 1
                     continue
-                page_number = page_idx + 1  # 1-based, matches evidence_page_num
+                page_number = page_idx + 1  # Corpus IDs are 1-based; raw evidence is 0-based.
                 doc_id = f"{slugify(doc_name)}_p{page_number}"
                 if doc_id in seen_ids:
                     continue

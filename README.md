@@ -312,6 +312,33 @@ uv run --no-sync python scripts/preflight_finance.py --load-retriever \
   --output reports/finance_preflight_linux.json
 ```
 
+#### Existing FinanceBench evidence mappings
+
+FinanceBench's [`evidence_page_num` is zero-based](https://github.com/patronus-ai/financebench/blob/main/README.md).
+Our corpus uses one-based IDs (`_p1` for the first PDF page). Earlier question
+files copied the raw page number into `gold_doc_ids`, pointing at the preceding
+page and producing invalid `_p0` IDs. Fix all mappings from the saved raw
+`evidence`, including IDs that happened to match an existing corpus page:
+
+```sh
+uv run --no-sync python scripts/repair_finance_evidence.py
+uv run --no-sync python scripts/repair_finance_evidence.py --apply
+uv run --no-sync python scripts/preflight_finance.py --load-retriever \
+  --output reports/finance_preflight_linux.json
+```
+
+The first command previews the changes. The second backs up the exact original
+file as `questions.before_evidence_fix.jsonl` and updates only `gold_doc_ids`.
+It preserves question order, answers, raw evidence, corpus and index. Repeating
+the repair is a no-op; an existing backup is never overwritten. No downloads or
+LLM calls are made. Recompute historical `context_recall` using corrected gold
+IDs and saved retrieved document IDs before comparing it with new runs. The
+repair does not change answer metrics or retroactively edit result files.
+
+Remaining missing evidence pages require a separate corpus check. Missing
+`index_provenance.json` is also a separate issue: the repair cannot establish
+which embedding model produced an old index and does not fabricate provenance.
+
 The preflight checks all 150 question IDs, evidence-page coverage, corpus/index
 hash agreement and a retrieval query. The query runs with offline model loading;
 missing weights fail instead of triggering a download. `ready` refers to this
