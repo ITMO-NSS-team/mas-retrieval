@@ -339,6 +339,29 @@ Remaining missing evidence pages require a separate corpus check. Missing
 `index_provenance.json` is also a separate issue: the repair cannot establish
 which embedding model produced an old index and does not fabricate provenance.
 
+#### Verify an existing index without rebuilding it
+
+If the only remaining problem is missing `index_provenance.json`, run:
+
+```sh
+uv run --no-sync python scripts/preflight_finance.py --register-existing-index \
+  --output reports/finance_preflight_linux.json
+```
+
+This compares every stored document ID and text with the current corpus, checks
+cosine distance, and compares up to 16 stored embeddings with fresh BGE-M3
+embeddings (cosine similarity must be at least 0.999). Sample IDs are selected by
+SHA-256 order, independently of evaluation answers. It also runs the retrieval
+query with reranking. Model weights must already be cached; no downloads or LLM
+calls are made. Do not update the corpus or index concurrently with this check.
+
+Only after all checks pass does it create the missing sidecar. The record is
+marked `verified_existing_index`, includes the verification environment and
+sample similarities, and leaves the historical model revision unknown. Sampled
+compatibility does not establish how every stored vector was produced. Corpus
+texts and indexed vectors are not rebuilt or replaced; existing provenance is
+never overwritten. Normal preflight runs remain checks without registration.
+
 The preflight checks all 150 question IDs, evidence-page coverage, corpus/index
 hash agreement and a retrieval query. The query runs with offline model loading;
 missing weights fail instead of triggering a download. `ready` refers to this
