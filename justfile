@@ -20,5 +20,6 @@ prepare *names:
     done
 
 # Run experiments (cross-OS); pass any CLI flag. See all with: just run --help
+[positional-arguments]
 run *ARGS:
-    uv run --no-sync python -m marlib.cli {{ARGS}}
+    uv run --no-sync python -m marlib.cli "$@"
