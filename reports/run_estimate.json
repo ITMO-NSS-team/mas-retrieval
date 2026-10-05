@@ -62,58 +62,13 @@
         ]
       },
       {
-        "benchmark": "frames",
-        "system": "automas_cl",
+        "benchmark": "financebench",
+        "system": "generated_single_agent_cl",
         "answers": 5,
         "basis": "explicit_planning_assumption",
         "system_usd": [
-          0.0138,
-          0.0138
-        ],
-        "judge_usd": 0.00195,
-        "serial_hours_including_judge": [
-          0.06527777777777778,
-          0.06527777777777778
-        ]
-      },
-      {
-        "benchmark": "frames",
-        "system": "naive_rag",
-        "answers": 5,
-        "basis": "explicit_planning_assumption",
-        "system_usd": [
-          0.004518,
-          0.004518
-        ],
-        "judge_usd": 0.00195,
-        "serial_hours_including_judge": [
-          0.027777777777777776,
-          0.027777777777777776
-        ]
-      },
-      {
-        "benchmark": "frames",
-        "system": "single_agent",
-        "answers": 5,
-        "basis": "explicit_planning_assumption",
-        "system_usd": [
-          0.01425,
-          0.01425
-        ],
-        "judge_usd": 0.00195,
-        "serial_hours_including_judge": [
-          0.09027777777777778,
-          0.09027777777777778
-        ]
-      },
-      {
-        "benchmark": "frames",
-        "system": "adas_cl",
-        "answers": 5,
-        "basis": "explicit_planning_assumption",
-        "system_usd": [
-          0.0258,
-          0.0258
+          0.02055,
+          0.02055
         ],
         "judge_usd": 0.00195,
         "serial_hours_including_judge": [
@@ -122,15 +77,15 @@
         ]
       }
     ],
-    "answers": 40,
+    "answers": 25,
     "total_usd": [
-      0.3574272499999999,
-      0.44673119999999994
+      0.31375925,
+      0.4030632
     ],
-    "planning_reserve_usd": 0.6700967999999999,
+    "planning_reserve_usd": 0.6045948,
     "serial_hours": [
-      0.9768012717372222,
-      1.065077882280139
+      0.7934679384038889,
+      0.8817445489468055
     ]
   },
   "recommended_final": {
@@ -196,75 +151,30 @@
         ]
       },
       {
-        "benchmark": "frames",
-        "system": "automas_cl",
-        "answers": 600,
+        "benchmark": "financebench",
+        "system": "generated_single_agent_cl",
+        "answers": 450,
         "basis": "explicit_planning_assumption",
         "system_usd": [
-          0.9189,
-          0.9189
+          1.3014,
+          1.3014
         ],
-        "judge_usd": 0.23399999999999999,
+        "judge_usd": 0.1755,
         "serial_hours_including_judge": [
-          5.883333333333334,
-          5.883333333333334
-        ]
-      },
-      {
-        "benchmark": "frames",
-        "system": "naive_rag",
-        "answers": 600,
-        "basis": "explicit_planning_assumption",
-        "system_usd": [
-          0.5421600000000001,
-          0.5421600000000001
-        ],
-        "judge_usd": 0.23399999999999999,
-        "serial_hours_including_judge": [
-          3.3333333333333335,
-          3.3333333333333335
-        ]
-      },
-      {
-        "benchmark": "frames",
-        "system": "single_agent",
-        "answers": 600,
-        "basis": "explicit_planning_assumption",
-        "system_usd": [
-          1.71,
-          1.71
-        ],
-        "judge_usd": 0.23399999999999999,
-        "serial_hours_including_judge": [
-          10.833333333333334,
-          10.833333333333334
-        ]
-      },
-      {
-        "benchmark": "frames",
-        "system": "adas_cl",
-        "answers": 600,
-        "basis": "explicit_planning_assumption",
-        "system_usd": [
-          2.3588999999999998,
-          2.3588999999999998
-        ],
-        "judge_usd": 0.23399999999999999,
-        "serial_hours_including_judge": [
-          10.883333333333333,
-          10.883333333333333
+          8.175,
+          8.175
         ]
       }
     ],
-    "answers": 4200,
+    "answers": 2250,
     "total_usd": [
-      32.13119249999999,
-      40.168548
+      27.142132499999995,
+      35.179488
     ],
-    "planning_reserve_usd": 60.252822,
+    "planning_reserve_usd": 52.769232,
     "serial_hours": [
-      91.27044778968332,
-      99.21534273854584
+      68.51211445634999,
+      76.4570094052125
     ]
   },
   "optional_mas_zero_frames_200x3": {
@@ -275,6 +185,37 @@
     "warning": "Assumes FinanceBench usage transfers to FRAMES; excluded from recommended package"
   },
   "price_source": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+  "price_verified_date": "2026-10-02",
+  "deferred_grids": {
+    "pilot": [
+      {
+        "benchmark": "frames",
+        "enabled": false,
+        "questions": 5,
+        "repeats": 1,
+        "systems": [
+          "automas_cl",
+          "naive_rag",
+          "single_agent",
+          "adas_cl"
+        ]
+      }
+    ],
+    "recommended_final": [
+      {
+        "benchmark": "frames",
+        "enabled": false,
+        "questions": 200,
+        "repeats": 3,
+        "systems": [
+          "automas_cl",
+          "naive_rag",
+          "single_agent",
+          "adas_cl"
+        ]
+      }
+    ]
+  },
   "assumptions": [
     "MAS-Zero range spans two overlapping small pilot means, not a confidence interval or cap.",
     "All other usage and latency inputs are planning assumptions, not new measurements.",
@@ -282,8 +223,9 @@
     "Sequential wall time includes assumed external judging; parallel speedup is not measured.",
     "FinanceBench pilot is technical only; the proposed full-150 final set includes those IDs. Do not tune by pilot accuracy.",
     "FRAMES pilot/final IDs are disjoint and frozen in configs/frames_ids.",
-    "Common execution-budget experiments and generated_single_agent remain separate implementation work.",
-    "Full cost measurement for other frameworks, frozen corpus coverage and index readiness gate final runs.",
+    "Generated prompt execution is assumed to cost as much as the static agent; this is not measured. CL construction uses the generic planning allowance.",
+    "Common execution-budget experiments still need MetaMAS/code-generator enforcement, isolation, and a fixed budget grid; their additional runs are not estimated here.",
+    "Full cost measurement for other frameworks and FinanceBench environment/index readiness gate final runs. FRAMES is deferred and excluded from active totals.",
     "Local indexing compute, storage, operator time and gateway fees are excluded."
   ]
 }

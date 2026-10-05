@@ -64,7 +64,7 @@ just run --benchmark financebench --systems fedotmas --generation-mode per_task 
 
 ### AAMAS extension: audit and offline checks
 
-The current audit is in `reports/mas_zero_frames_audit.json`; the proposed run
+The initial MAS-Zero/FRAMES audit is in `reports/mas_zero_frames_audit.json`; the current proposed run
 matrix is in `configs/run_plan.json`. Recompute its estimate without API calls:
 
 ```bash
@@ -160,7 +160,8 @@ each question attempt inside the run. Per-question JSONL checkpoints are written
 after evaluation. A hard process interruption can leave unmatched start events;
 those requests have unknown usage and require reconciliation.
 
-The current budgets are **cooperative and MAS-Zero-only**: request/tool counts
+The current budgets are **cooperative** and cover MAS-Zero helpers plus the
+`single_agent` / `generated_single_agent` Chat Completions clients and local tools. Request/tool counts
 are reserved before instrumented calls; output capacity is reserved across
 threads. Token limits stop on observed usage, so input tokens can overshoot a
 threshold. Unknown usage stops further calls when a token threshold is set.
@@ -176,3 +177,65 @@ partial cost. Failed empty answers receive zero answer accuracy; missing judge
 verdicts remain missing, with explicit metric denominators. Retrieval call counts
 now count `retrieve`/`search`; rerank, calculator, and total tools are separate.
 Historical logs retain their original semantics and must not be rewritten.
+
+### FinanceBench controls and current priorities (2026-10-05)
+
+FRAMES is deferred while its source coverage remains incomplete. Its fixed IDs
+and downloaded snapshot are retained. `configs/run_plan.json` marks both FRAMES
+grids `enabled: false`; `scripts/estimate_runs.py` excludes them from active
+totals and lists them separately. The active estimate includes the FinanceBench
+MAS-Zero comparison and the generated-instruction control. It does not yet price
+the multiple-budget sweep or `adas_budgeted`.
+
+`generated_single_agent` implements the CL instruction control. The generator
+receives the benchmark description and the same first three unlabelled examples
+used by MetaMAS CL. It creates one instruction per independent repeat, with no
+answer feedback or instruction selection. The static and generated conditions
+share the Pydantic AI executor, retrieval/rerank/calculator tools, sequential tool
+execution, temperature, and execution limits. Generation model defaults to the
+executor model; `meta_model` can override it and is recorded in metadata.
+
+Both conditions now record each SDK attempt, including retries and failed calls,
+instead of a single aggregate usage event. They default to temperature 0.1,
+4096 output tokens per request, and 50 API attempts per answer. These settings
+are explicit in the new `single_agent_accounted_v1` condition; historical runs
+remain unchanged. On budget exhaustion the agent returns an empty failed answer
+without an extra finalization call. Wall limits remain call-boundary checks,
+not hard process termination.
+
+Construction and execution have separate resource sessions. Generated instruction,
+generator inputs/output, errors and event journals are saved in the run artifacts.
+Construction calls appear only in the first attempted question's `llm_calls`;
+later questions reference the same artifact without duplicating its usage.
+Sum call events by phase when calculating construction/reuse cost; do not sum
+the repeated `construction_reference` summaries. An empty or truncated generated
+instruction fails the repeat: subsequent questions do not trigger another
+construction attempt. A new run context or benchmark resets the instruction.
+
+The offline integration checks use Pydantic AI 1.56.0 and real OpenAI SDK clients
+with mocked HTTP responses. They cover prompt reuse/reset, attempt counts,
+tool/request limits, unknown usage, partial failures and absent gold answers in
+model payloads. A minimal environment for these tests can be installed with:
+
+```bash
+uv pip install --python .venv/bin/python 'pydantic-ai-slim[openai]==1.56.0'
+PYTHONPATH=src .venv/bin/python -m pytest tests/test_single_agent_accounting.py
+```
+
+The proposed paired technical pilot uses equal execution limits of 10 API
+attempts, 20 tool calls, 50,000 observed tokens and 120 seconds. Construction has
+its own limits. After retrieval/environment preparation and authorization for
+model calls, its command is:
+
+```bash
+just run --benchmark financebench --systems single_agent generated_single_agent \
+  --sample-n 5 --generation-mode one_time \
+  --adapter-config configs/finance_prompt_control.pilot.json \
+  --condition-id finance_prompt_control_pilot \
+  --note "technical pilot; no accuracy tuning"
+```
+
+This command does not yet include MetaMAS: its actual request accounting,
+construction events, and MCP tool enforcement remain to be implemented. The
+code-generator control and process isolation are also pending. Accordingly,
+experiments A/B/E are not ready for final comparisons. No live pilot has run.

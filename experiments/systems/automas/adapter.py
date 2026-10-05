@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from marlib.adapters.base import AbstractAdapter, register
+from marlib.adapters.construction import task_description
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
 
@@ -60,17 +61,7 @@ class AutoMASAdapter(AbstractAdapter):
 
     def _build_task_description(self) -> str:
         """Build a generic task description from benchmark context for one_time mode."""
-        parts = []
-        if self._benchmark_description:
-            parts.append(self._benchmark_description)
-        else:
-            parts.append(
-                "Answer questions accurately using retrieval-augmented generation."
-            )
-        if self._sample_questions:
-            examples = "\n".join(f"- {q}" for q in self._sample_questions[:3])
-            parts.append(f"\nExample questions from the benchmark:\n{examples}")
-        return "\n".join(parts)
+        return task_description(self._benchmark_description, self._sample_questions)
 
     @property
     def name(self) -> str:

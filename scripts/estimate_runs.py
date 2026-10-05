@@ -12,6 +12,8 @@ def estimate(plan):
     for stage in ("pilot", "recommended_final"):
         rows, total_low, total_high, hours_low, hours_high = [], 0, 0, 0, 0
         for grid in plan[stage]:
+            if not grid.get("enabled", True):
+                continue
             for system in grid["systems"]:
                 n = grid["questions"] * grid["repeats"]
                 measured = system == "mas_zero"
@@ -39,6 +41,9 @@ def estimate(plan):
         "system_usd": [600 * min(mas_prices), 600 * max(mas_prices)],
         "warning": "Assumes FinanceBench usage transfers to FRAMES; excluded from recommended package"}
     results["price_source"] = plan["price_source"]
+    results["price_verified_date"] = plan["price_verified_date"]
+    results["deferred_grids"] = {stage: [g for g in plan[stage] if not g.get("enabled", True)]
+                                for stage in ("pilot", "recommended_final")}
     results["assumptions"] = plan["assumptions"]
     return results
 

@@ -1,5 +1,14 @@
 {
   "status": "proposal_no_paid_runs_authorized",
+  "priority_update": {
+    "date": "2026-10-05",
+    "active": ["A_common_budgets", "B_generated_instruction", "C_mas_zero_financebench", "E_construction_reuse"],
+    "deferred": ["D_frames"],
+    "reason": "User lowered FRAMES priority while its corpus has unresolved coverage gaps.",
+    "next": "Connect MetaMAS and the code-generator control to request/tool accounting; validate process deadlines and shared inputs before matched-budget comparisons.",
+    "prompt_control": "Implemented and tested offline; configs/finance_prompt_control.pilot.json. No live pilot yet.",
+    "estimate_scope": "FinanceBench competitor comparison plus generated prompt control. The multi-budget sweep and adas_budgeted remain unpriced until their protocol is fixed."
+  },
   "model": "openai/gpt-4o-mini",
   "judge_model": "openai/gpt-4o-mini",
   "price_verified_date": "2026-10-02",
@@ -16,18 +25,19 @@
     "automas_cl": {"input": 8000, "output": 500, "seconds": 30},
     "automas_ql": {"input": 28000, "output": 2500, "seconds": 90},
     "single_agent": {"input": 15000, "output": 1000, "seconds": 60},
+    "generated_single_agent_cl": {"input": 15000, "output": 1000, "seconds": 60},
     "naive_rag": {"input": 5000, "output": 256, "seconds": 15},
     "adas_cl": {"input": 20000, "output": 1500, "seconds": 60}
   },
   "assumed_cl_construction": {"input": 30000, "output": 3000, "seconds": 60},
   "assumed_external_judge": {"input": 2000, "output": 150, "seconds": 5},
   "pilot": [
-    {"benchmark": "financebench", "questions": 5, "repeats": 1, "systems": ["mas_zero", "automas_cl", "automas_ql", "single_agent"]},
-    {"benchmark": "frames", "questions": 5, "repeats": 1, "systems": ["automas_cl", "naive_rag", "single_agent", "adas_cl"]}
+    {"benchmark": "financebench", "questions": 5, "repeats": 1, "systems": ["mas_zero", "automas_cl", "automas_ql", "single_agent", "generated_single_agent_cl"]},
+    {"benchmark": "frames", "enabled": false, "questions": 5, "repeats": 1, "systems": ["automas_cl", "naive_rag", "single_agent", "adas_cl"]}
   ],
   "recommended_final": [
-    {"benchmark": "financebench", "questions": 150, "repeats": 3, "systems": ["mas_zero", "automas_cl", "automas_ql", "single_agent"]},
-    {"benchmark": "frames", "questions": 200, "repeats": 3, "systems": ["automas_cl", "naive_rag", "single_agent", "adas_cl"]}
+    {"benchmark": "financebench", "questions": 150, "repeats": 3, "systems": ["mas_zero", "automas_cl", "automas_ql", "single_agent", "generated_single_agent_cl"]},
+    {"benchmark": "frames", "enabled": false, "questions": 200, "repeats": 3, "systems": ["automas_cl", "naive_rag", "single_agent", "adas_cl"]}
   ],
   "contingency_fraction": 0.5,
   "assumptions": [
@@ -37,8 +47,9 @@
     "Sequential wall time includes assumed external judging; parallel speedup is not measured.",
     "FinanceBench pilot is technical only; the proposed full-150 final set includes those IDs. Do not tune by pilot accuracy.",
     "FRAMES pilot/final IDs are disjoint and frozen in configs/frames_ids.",
-    "Common execution-budget experiments and generated_single_agent remain separate implementation work.",
-    "Full cost measurement for other frameworks, frozen corpus coverage and index readiness gate final runs.",
+    "Generated prompt execution is assumed to cost as much as the static agent; this is not measured. CL construction uses the generic planning allowance.",
+    "Common execution-budget experiments still need MetaMAS/code-generator enforcement, isolation, and a fixed budget grid; their additional runs are not estimated here.",
+    "Full cost measurement for other frameworks and FinanceBench environment/index readiness gate final runs. FRAMES is deferred and excluded from active totals.",
     "Local indexing compute, storage, operator time and gateway fees are excluded."
   ]
 }

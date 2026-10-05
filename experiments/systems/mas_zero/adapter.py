@@ -91,6 +91,8 @@ class MASZeroAdapter(AbstractAdapter):
             raise ValueError("MAS-Zero supports per_task only; one_time would mislabel the algorithm")
         self._generation_mode = "per_task"
         self._limits = ResourceLimits(**self._config.get("resource_limits", {}))
+        if self._limits.scope != "full_answer":
+            raise ValueError("MAS-Zero requires full_answer resource limits")
 
         self._meta_model: str = self._config.get("meta_model", self._model)
         # Zero-supervision verifier; defaults to the node model (no o3-mini needed).

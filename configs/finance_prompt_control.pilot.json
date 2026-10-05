@@ -1,0 +1,35 @@
+{
+  "single_agent": {
+    "temperature": 0.1,
+    "resource_limits": {
+      "scope": "execution",
+      "max_requests": 10,
+      "max_tool_calls": 20,
+      "max_total_tokens": 50000,
+      "wall_seconds": 120,
+      "request_timeout": 60,
+      "output_per_request": 4096
+    }
+  },
+  "generated_single_agent": {
+    "temperature": 0.1,
+    "generator_temperature": 0.3,
+    "resource_limits": {
+      "scope": "execution",
+      "max_requests": 10,
+      "max_tool_calls": 20,
+      "max_total_tokens": 50000,
+      "wall_seconds": 120,
+      "request_timeout": 60,
+      "output_per_request": 4096
+    },
+    "construction_limits": {
+      "scope": "construction",
+      "max_requests": 3,
+      "max_total_tokens": 20000,
+      "wall_seconds": 120,
+      "request_timeout": 60,
+      "output_per_request": 4096
+    }
+  }
+}
