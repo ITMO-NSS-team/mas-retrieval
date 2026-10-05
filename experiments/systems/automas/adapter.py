@@ -254,8 +254,19 @@ class AutoMASAdapter(AbstractAdapter):
                     coverage="automas_generators_chat_completions")
                 self._construction_path = artifacts / "workflow.json"
             if needs_construction:
-                pool, graph = await run_with_deadline(self._construction_session,
-                    self._ensure_structure(question, self._construction_session, stack))
+                construction_error = None
+                try:
+                    pool, graph = await run_with_deadline(self._construction_session,
+                        self._ensure_structure(question, self._construction_session, stack))
+                except BaseException as exc:
+                    construction_error = f"{type(exc).__name__}: {exc}"
+                    raise
+                finally:
+                    if not combined:
+                        # Freeze before execution starts, including failed generation.
+                        self._construction_summary = self._construction_session.summary()
+                        self._construction_session.write({"kind": "construction_end",
+                            "error": construction_error, "resources": self._construction_summary})
             else:
                 pool, graph = await self._ensure_structure(question, self._construction_session, stack)
             if not combined:
@@ -313,8 +324,6 @@ class AutoMASAdapter(AbstractAdapter):
                 external_descriptions.EXTERNAL_SERVER_DESCRIPTIONS.update(saved_registry[1])
         sessions = [s for s in (self._construction_session if charged_here else None, self._execution_session) if s]
         stopped = next((s.stop_reason for s in sessions if s.stop_reason), None)
-        if charged_here and self._construction_session and self._limits.scope != "full_answer":
-            self._construction_summary = self._construction_session.summary()
         log = tracker.to_question_log(answer)
         log.gold_answer = gold_answer
         log.failure_kind = "budget_exhausted" if stopped else ("unknown" if log.error else None)

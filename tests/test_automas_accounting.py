@@ -76,6 +76,35 @@ def test_ql_budget_includes_construction_and_survives_pipeline_error(framework, 
     assert log.resource_summary["execution"]["stop_reason"] == "max_requests"
 
 
+def test_construction_wall_excludes_execution_and_is_frozen_on_reuse(framework, tmp_path, http_models, monkeypatch):
+    from types import SimpleNamespace
+    import marlib.tracing.resources as resources
+
+    clock = [0.0]
+    monkeypatch.setattr(resources, "time", SimpleNamespace(perf_counter=lambda: clock[0]))
+    replies, _ = http_models
+
+    def delayed(response, seconds):
+        def respond(payload):
+            clock[0] += seconds
+            return response(payload) if callable(response) else response
+        return respond
+
+    replies.extend([*(delayed(reply, 2) for reply in workflow_replies()),
+                    delayed(completion(), 40), delayed(completion(), 30)])
+    adapter = make_adapter(tmp_path, generation_mode="one_time")
+    _, first = adapter.execute("q1", "Q1", "gold")
+    _, second = adapter.execute("q2", "Q2", "gold")
+    assert first.status == second.status == "completed"
+    assert first.resource_summary["construction_reference"]["wall_seconds"] == 4
+    assert second.resource_summary["construction_reference"] == first.resource_summary["construction_reference"]
+    assert first.resource_summary["execution"]["wall_seconds"] == 40
+    assert second.resource_summary["execution"]["wall_seconds"] == 30
+    events = [json.loads(line) for line in Path(first.artifact_paths["construction_events"]).read_text().splitlines()]
+    end = next(event for event in events if event["kind"] == "construction_end")
+    assert end["resources"]["wall_seconds"] == 4 and end["error"] is None
+
+
 def test_construction_budget_failure_is_not_retried(framework, tmp_path, http_models):
     replies, payloads = http_models
     replies.append(workflow_replies()[0])
@@ -86,6 +115,8 @@ def test_construction_budget_failure_is_not_retried(framework, tmp_path, http_mo
     assert second.status == "failed"
     assert len(payloads) == 1 and second.total_tokens == 0
     assert Path(first.artifact_paths["workflow"]).exists()  # partial pool survives
+    assert first.resource_summary["construction_reference"]["api_attempts"] == 1
+    assert first.resource_summary["construction_reference"]["stop_reason"] == "max_requests"
 
 
 def test_real_mcp_subprocess_admission_and_source_ids(tmp_path):
