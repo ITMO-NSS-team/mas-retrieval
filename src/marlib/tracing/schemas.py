@@ -11,6 +11,8 @@ class ToolCall(BaseModel):
     top_k: int = Field(description="Number of results requested")
     results: list[str] = Field(description="List of returned doc_ids")
     latency_ms: float = Field(description="Tool execution latency in milliseconds")
+    phase: str = "answer_execution"
+    error: str | None = None
 
 
 class LLMCall(BaseModel):
@@ -23,6 +25,13 @@ class LLMCall(BaseModel):
     function_calls: int = Field(
         default=0, description="Number of function/tool calls in response"
     )
+    phase: str = "answer_execution"
+    event_id: str | None = None
+    logical_call_id: str | None = None
+    usage_known: bool = True
+    error: str | None = None
+    # Legacy framework totals are aggregates, not individual API attempts.
+    measurement: str = "legacy"
 
 
 class QuestionLog(BaseModel):
@@ -64,6 +73,14 @@ class QuestionLog(BaseModel):
         default=0, description="Number of retrieval tool calls"
     )
     num_llm_calls: int = Field(default=0, description="Number of LLM API calls")
+    num_tool_calls: int = 0
+    tool_counts: dict[str, int] = Field(default_factory=dict)
+    status: str = "completed"
+    failure_kind: str | None = None
+    metric_status: dict[str, str] = Field(default_factory=dict)
+    metric_errors: dict[str, str] = Field(default_factory=dict)
+    artifact_paths: dict[str, str] = Field(default_factory=dict)
+    resource_summary: dict = Field(default_factory=dict)
 
     error: str | None = Field(default=None, description="Error message if execution failed")
 
@@ -89,6 +106,8 @@ class SystemResults(BaseModel):
     avg_metrics: dict[str, float] = Field(
         default_factory=dict, description="Average score per metric by name"
     )
+    metric_denominators: dict[str, int] = Field(default_factory=dict)
+    metric_missing: dict[str, int] = Field(default_factory=dict)
 
     avg_tokens_per_question: float = Field(
         default=0.0, description="Average total tokens per question"

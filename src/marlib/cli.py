@@ -13,9 +13,10 @@ from marlib.benchmarks import BenchmarkSpec, discover, load_spec
 from marlib.evaluation.llm_judge import judge_model
 from marlib.reporting import render_summary
 from marlib.log import logger
-from marlib.retriever import Retriever, RetrieverSettings
+from marlib.retriever.config import RetrieverSettings
 from marlib.runner import run_system_on_benchmark, save_results
 from marlib.tracing.schemas import SystemResults
+from marlib.provenance import file_hash, runtime_provenance
 
 
 def _git_sha() -> str | None:
@@ -121,6 +122,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--note", default="", help="Free-text note describing this run."
     )
+    parser.add_argument("--adapter-config", type=Path, help="JSON object keyed by system name; adapter kwargs")
+    parser.add_argument("--question-ids", type=Path, help="JSON list of ordered question IDs; mutually exclusive with --sample-n")
+    parser.add_argument("--condition-id", default="default", help="Protocol condition label saved in metadata")
     return parser
 
 
@@ -133,11 +137,27 @@ def main() -> None:
     """
     parser = _build_parser()
     args = parser.parse_args()
-
+    if args.question_ids and args.sample_n is not None:
+        parser.error("--question-ids and --sample-n are mutually exclusive")
+    args.adapter_options = json.loads(args.adapter_config.read_text()) if args.adapter_config else {}
+    if not isinstance(args.adapter_options, dict) or any(not isinstance(v, dict) for v in args.adapter_options.values()):
+        parser.error("--adapter-config must be an object keyed by system name")
     available = discover_adapters(args.systems_dir)
     unknown = [s for s in args.systems if s not in available]
     if unknown:
         parser.error(f"Unknown system(s) {unknown}. Available: {available}")
+    for name in args.systems:
+        cls = get_adapter_class(name)
+        cfg = args.adapter_options.get(name, {})
+        if {"retriever", "model"} & cfg.keys():
+            parser.error("Set the node model with --model; retriever is supplied by the harness")
+        if "resource_limits" in cfg and not cls.supports_resource_limits:
+            parser.error(f"Resource limits are not instrumented for: {name}")
+        mode = args.generation_mode or cfg.get("generation_mode")
+        if mode and cls.supported_generation_modes and mode not in cls.supported_generation_modes:
+            parser.error(f"{name} supports only {cls.supported_generation_modes}")
+    if args.repeats < 1 or (args.sample_n is not None and args.sample_n < 1):
+        parser.error("--repeats and --sample-n must be positive")
 
     # Resolve (and validate) every benchmark up front so a typo fails fast,
     # before any heavy retriever load or model call.
@@ -218,14 +238,16 @@ def _run_benchmark(
     # Export so any MCP server spawned by an adapter reconstructs this same config.
     settings.export_env()
 
-    logger.info("Initializing retriever...")
-    retriever = Retriever(settings)
-    logger.info(
-        f"Collection '{spec.collection}' loaded",
-        documents=retriever.document_count,
-    )
-
     questions = spec.load_questions(sample_n=args.sample_n)
+    if args.question_ids:
+        ids = json.loads(args.question_ids.read_text())
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids) or len(ids) != len(set(ids)):
+            raise ValueError("Question IDs must be a list of unique strings")
+        by_id = {q["id"]: q for q in questions}
+        if len(by_id) != len(questions):
+            raise ValueError("Duplicate question IDs in benchmark")
+        questions = [by_id[qid] for qid in ids]
+
     logger.info(f"Loaded {len(questions)} questions")
     sample_qs = [q.get("question", "") for q in questions[:5]]
 
@@ -236,6 +258,31 @@ def _run_benchmark(
     all_results: list[SystemResults] = []
     summaries: list[dict] = []
     failed_systems: list[str] = []
+    effective_configs = {}
+    provenance = {"run_id": run_id, "git_sha": _git_sha(), "repeat": repeat,
+                  "condition_id": args.condition_id, "question_ids": [q["id"] for q in questions],
+                  "requested_adapter_config": args.adapter_options, "status": "started"}
+    provenance.update(runtime_provenance(args.systems_dir))
+    provenance["data_sha256"] = {str(p): file_hash(p) for p in (
+        spec.questions_path, spec.corpus_path, spec.root / "manifest.toml",
+        spec.root / "builder.py", spec.root / "corpus_provenance.json",
+        spec.index_path / "index_provenance.json")}
+    (out_dir / "run_meta.json").write_text(json.dumps(provenance, indent=2))
+
+    try:
+        from marlib.retriever import Retriever
+
+        logger.info("Initializing retriever...")
+        retriever = Retriever(settings)
+        logger.info(
+            f"Collection '{spec.collection}' loaded",
+            documents=retriever.document_count,
+        )
+
+    except Exception as exc:
+        provenance.update(status="infrastructure_error", error=str(exc))
+        (out_dir / "run_meta.json").write_text(json.dumps(provenance, indent=2))
+        raise
 
     for system_name in args.systems:
         logger.info(f"Running system: {system_name}")
@@ -243,9 +290,14 @@ def _run_benchmark(
         # is logged and recorded, but the remaining systems still run.
         try:
             adapter = get_adapter_class(system_name)(
-                retriever=retriever, model=args.model, **adapter_kwargs
+                retriever=retriever, model=args.model, **{**args.adapter_options.get(system_name, {}), **adapter_kwargs}
             )
             adapter.set_benchmark_context(spec.name, spec.description, sample_qs)
+            adapter.set_run_context(run_id=run_id, repeat=repeat, condition_id=args.condition_id,
+                                    artifact_dir=str(out_dir / "artifacts" / system_name))
+            effective_configs[system_name] = adapter.effective_config()
+            provenance["effective_adapter_config"] = effective_configs
+            (out_dir / "run_meta.json").write_text(json.dumps(provenance, indent=2))
 
             results = run_system_on_benchmark(
                 adapter=adapter,
@@ -253,6 +305,7 @@ def _run_benchmark(
                 benchmark_name=spec.name,
                 model=args.model,
                 metrics=spec.metrics,
+                checkpoint_path=out_dir / f"{system_name}.questions.jsonl",
             )
         except Exception as e:
             logger.error(
@@ -305,6 +358,8 @@ def _run_benchmark(
             f"{spec.name}: {len(failed_systems)} system(s) failed: {failed_systems}"
         )
     run_meta = {
+        **provenance,
+        "status": "completed_with_failures" if failed_systems else "completed",
         "run_id": run_id,
         "timestamp": timestamp,
         "argv": sys.argv,

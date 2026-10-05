@@ -5,15 +5,19 @@ import sys
 import types
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from marlib.log import logger
 from marlib.tracing.schemas import QuestionLog
-from marlib.retriever.core import Retriever
+if TYPE_CHECKING:
+    from marlib.retriever.core import Retriever
 
 
 class AbstractAdapter(ABC):
     """Base class for MAS system adapters: generate_system() + execute()."""
+
+    supports_resource_limits = False
+    supported_generation_modes: tuple[str, ...] | None = None
 
     def __init__(
         self,
@@ -25,11 +29,20 @@ class AbstractAdapter(ABC):
         self._model = model
         self._generation_mode = kwargs.pop("generation_mode", None)
         self._config = kwargs
-
-        # Benchmark context (set by runner before each benchmark)
+        if "resource_limits" in kwargs and not self.supports_resource_limits:
+            raise ValueError(f"Resource limits are not instrumented for {type(self).__name__}")
+        self._run_context: dict[str, Any] = {}
         self._benchmark_name: str | None = None
         self._benchmark_description: str | None = None
         self._sample_questions: list[str] = []
+
+    def set_run_context(self, **context: Any) -> None:
+        """Artifact destination and provenance; never part of model prompts."""
+        self._run_context = context
+
+    def effective_config(self) -> dict[str, Any]:
+        return {"model": self._model, "generation_mode": self._generation_mode,
+                **self._config}
 
     def set_benchmark_context(
         self,

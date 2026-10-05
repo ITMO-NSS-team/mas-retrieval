@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from marlib.adapters.calc import do_calculate, safe_eval
-from marlib.retriever.core import Document, Retriever
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from marlib.retriever.core import Document, Retriever
 
 __all__ = [
     "format_docs",

@@ -19,7 +19,7 @@ dependencies = [
     "pydantic>=2.12.5",
     "pydantic-settings>=2.14.0",
     "pydantic-ai>=1.56.0",
-    "logly>=0.1.6",
+    "logly>=0.1.6,<0.2",
     "tqdm>=4.67.3",
     "pydantic-monty>=0.0.18",
     "genai-prices>=0.0.62",
@@ -35,7 +35,7 @@ bench = "marlib.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8.4.0"]
-benchmarks = ["datasets>=4.5.0", "pymupdf>=1.25.0"]
+benchmarks = ["datasets>=4.5.0", "pymupdf>=1.25.0", "beautifulsoup4>=4.12,<5", "lxml>=5,<7"]
 ma_rag = ["pydantic-graph>=1.56.0"]
 swarm_agentic = ["langchain-openai>=0.3.0", "langchain-core>=0.3.0"]
 naive_rag = ["openai>=2.16.0", "python-dotenv>=1.0.0"]

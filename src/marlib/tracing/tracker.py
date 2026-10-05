@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections import Counter
 from contextlib import contextmanager
 from typing import Any, Generator
 
@@ -19,6 +20,7 @@ class TokenTracker:
         self._llm_calls: list[LLMCall] = []
         self._start_time = time.perf_counter()
         self._error: str | None = None
+        self.tool_event_sink = None
 
     def log_tool_call(
         self,
@@ -27,16 +29,21 @@ class TokenTracker:
         top_k: int,
         results: list[str],
         latency_ms: float,
+        phase: str = "answer_execution",
+        error: str | None = None,
     ) -> None:
-        self._tool_calls.append(
-            ToolCall(
-                tool_name=tool_name,
-                query=query,
-                top_k=top_k,
-                results=results,
-                latency_ms=latency_ms,
-            )
+        call = ToolCall(
+            tool_name=tool_name,
+            query=query,
+            top_k=top_k,
+            results=results,
+            latency_ms=latency_ms,
+            phase=phase,
+            error=error,
         )
+        self._tool_calls.append(call)
+        if self.tool_event_sink:
+            self.tool_event_sink({"kind": "tool_end", **call.model_dump()})
 
     def log_llm_call(
         self,
@@ -45,6 +52,7 @@ class TokenTracker:
         completion_tokens: int,
         latency_ms: float,
         function_calls: int = 0,
+        **event: Any,
     ) -> None:
         self._llm_calls.append(
             LLMCall(
@@ -53,6 +61,7 @@ class TokenTracker:
                 completion_tokens=completion_tokens,
                 latency_ms=latency_ms,
                 function_calls=function_calls,
+                **event,
             )
         )
 
@@ -66,11 +75,15 @@ class TokenTracker:
         """Time a tool call; append returned doc_ids to the yielded list."""
         results: list[str] = []
         start = time.perf_counter()
+        error = None
         try:
             yield results
+        except BaseException as exc:
+            error = str(exc)
+            raise
         finally:
             latency_ms = (time.perf_counter() - start) * 1000
-            self.log_tool_call(tool_name, query, top_k, results, latency_ms)
+            self.log_tool_call(tool_name, query, top_k, results, latency_ms, error=error)
 
     @contextmanager
     def track_llm(self, model: str) -> Generator[dict[str, Any], None, None]:
@@ -109,7 +122,10 @@ class TokenTracker:
             total_completion_tokens=total_completion,
             total_tokens=total_prompt + total_completion,
             total_latency_ms=total_latency_ms,
-            num_retrieval_calls=len(self._tool_calls),
+            num_retrieval_calls=sum(c.tool_name in {"retrieve", "search"} for c in self._tool_calls),
+            num_tool_calls=len(self._tool_calls),
+            tool_counts=dict(Counter(c.tool_name for c in self._tool_calls)),
             num_llm_calls=len(self._llm_calls),
             error=self._error,
+            status="failed" if self._error else "completed",
         )

@@ -1,7 +1,15 @@
 from marlib.retriever.config import RetrieverSettings
-from marlib.retriever.core import Document, Retriever
-from marlib.retriever.embedder import BGEM3Embedder
-from marlib.retriever.reranker import BGEReranker
+
+
+def __getattr__(name):
+    # Configuration and offline tests do not need torch, Chroma, or model weights.
+    from importlib import import_module
+
+    modules = {"Document": "core", "Retriever": "core",
+               "BGEM3Embedder": "embedder", "BGEReranker": "reranker"}
+    if name not in modules:
+        raise AttributeError(name)
+    return getattr(import_module(f"marlib.retriever.{modules[name]}"), name)
 
 __all__ = [
     "Document",

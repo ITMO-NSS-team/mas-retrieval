@@ -16,10 +16,11 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
-import backoff
 import openai
+from uuid import uuid4
+from marlib.tracing.resources import completion_request
 
 from .core import TOO_HARD_MARK
 
@@ -28,9 +29,6 @@ logger = logging.getLogger(__name__)
 UsageCallback = Callable[[int, int], None] | None
 
 
-@backoff.on_exception(
-    backoff.expo, (openai.RateLimitError, openai.APITimeoutError), max_tries=5
-)
 def _verifier_json(
     messages: list[dict],
     model: str,
@@ -41,24 +39,24 @@ def _verifier_json(
     client = openai.OpenAI(
         base_url=os.environ.get("OPENAI_BASE_URL"),
         api_key=os.environ.get("OPENAI_API_KEY"),
+        max_retries=0,
+        timeout=60.0,
     )
+    logical_id = uuid4().hex
     for _ in range(3):
-        response = client.chat.completions.create(
+        response = completion_request(client, usage_callback, logical_id,
             model=model,
             messages=messages,
             response_format={"type": "json_object"},
         )
-        usage = response.usage
-        if usage and usage_callback:
-            usage_callback(usage.prompt_tokens, usage.completion_tokens)
         text = response.choices[0].message.content or ""
         try:
             data = json.loads(text)
-            if all(k in data for k in output_fields):
+            if isinstance(data, dict) and all(k in data for k in output_fields):
                 return data
         except json.JSONDecodeError:
             pass
-    return {}
+    raise ValueError(f"No valid verifier JSON for {output_fields} after 3 attempts")
 
 
 def _clamp01(value: Any) -> float:
@@ -156,17 +154,16 @@ def self_verify(
     ``thinking``/``response`` for context). Returns an index into ``candidates``.
     Falls back to the highest-fitness candidate (or 0) on any failure.
     """
-    usable = [c for c in candidates if (c.get("answer") or "").strip()]
+    usable = [(i, c) for i, c in enumerate(candidates) if (c.get("answer") or "").strip()]
     if not usable:
         return _best_by_fitness(candidates)
     if len(usable) == 1:
-        return candidates.index(usable[0])
+        return usable[0][0]
 
     lines = []
-    for c in usable:
-        idx = candidates.index(c)
-        thinking = (c.get("thinking") or "")[:1500]
-        answer = (c.get("answer") or "")[:800]
+    for idx, c in usable:
+        thinking = c.get("thinking") or ""
+        answer = c.get("answer") or ""
         lines.append(f"Answer ID {idx}:\nReasoning: {thinking}\nFinal answer: {answer}")
     answer_list = "\n\n".join(lines)
 
@@ -192,13 +189,13 @@ def self_verify(
         idx = int(str(selection).strip())
     except (TypeError, ValueError):
         logger.warning("self_verify: unparseable selection %r", selection)
-        return _best_by_fitness(candidates)
-    if 0 <= idx < len(candidates):
+        raise ValueError(f"Unparseable verifier selection: {selection!r}")
+    if idx in {i for i, _ in usable}:
         return idx
-    return _best_by_fitness(candidates)
+    raise ValueError(f"Verifier selected unavailable answer: {idx}")
 
 
 def _best_by_fitness(candidates: list[dict]) -> int:
     if not candidates:
         return 0
-    return max(range(len(candidates)), key=lambda i: candidates[i].get("fitness", 0.0))
+    return max(range(len(candidates)), key=lambda i: (bool(candidates[i].get("answer", "").strip()), candidates[i].get("fitness", 0.0)))

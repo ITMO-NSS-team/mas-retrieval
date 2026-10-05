@@ -1,6 +1,6 @@
 """MAS-Zero adapter for RAG benchmark evaluation.
 
-Faithful per-question implementation of MAS-Zero (Designing Multi-Agent Systems
+Per-question RAG adaptation of MAS-Zero (Designing Multi-Agent Systems
 with Zero Supervision), with retrieval tools wired into the generated sub-MAS so
 it is comparable to the RAG systems in this harness. The algorithm runs three
 steps for every question, inference-time only, with NO gold answer used:
@@ -25,18 +25,25 @@ import logging
 import os
 import re
 import types
-from typing import Any, Callable
+from dataclasses import asdict
+from pathlib import Path
+from uuid import uuid4
+from hashlib import sha256
+from typing import TYPE_CHECKING, Any, Callable
 
-import backoff
 import openai
 
 from marlib.adapters.base import AbstractAdapter, register
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
-from marlib.retriever.core import Document, Retriever
+if TYPE_CHECKING:
+    from marlib.retriever.core import Document, Retriever
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
+from marlib.tracing.resources import (
+    BudgetExhausted, ResourceLimits, ResourceSession, TrackedCompletion, completion_request,
+)
 
-from .blocks import get_init_archive
+from .blocks import INIT_BLOCKS, get_init_archive
 from .core import (
     ANSWER_PATTERN,
     TOO_HARD_MARK,
@@ -70,6 +77,9 @@ _DEFAULT_BLOCKS = ["COT", "COT_SC", "Reflexion", "LLM_debate"]
 class MASZeroAdapter(AbstractAdapter):
     """Full MAS-Zero meta-agent: decompose -> feedback loop -> self-verify."""
 
+    supports_resource_limits = True
+    supported_generation_modes = ("per_task",)
+
     def __init__(
         self,
         retriever: Retriever,
@@ -77,6 +87,10 @@ class MASZeroAdapter(AbstractAdapter):
         **kwargs: Any,
     ) -> None:
         super().__init__(retriever, model, **kwargs)
+        if self._generation_mode not in (None, "per_task"):
+            raise ValueError("MAS-Zero supports per_task only; one_time would mislabel the algorithm")
+        self._generation_mode = "per_task"
+        self._limits = ResourceLimits(**self._config.get("resource_limits", {}))
 
         self._meta_model: str = self._config.get("meta_model", self._model)
         # Zero-supervision verifier; defaults to the node model (no o3-mini needed).
@@ -85,7 +99,6 @@ class MASZeroAdapter(AbstractAdapter):
         self._n_generation: int = self._config.get("n_generation", 10)
         self._max_round: int = self._config.get("max_round", 2)
         self._max_sc: int = self._config.get("max_sc", 3)
-        self._debug_max: int = self._config.get("debug_max", 3)
         # Stop the search once a candidate reaches this self-assessed fitness.
         self._fitness_threshold: float = self._config.get("fitness_threshold", 1.0)
         self._cot_instruction: str = self._config.get(
@@ -97,10 +110,16 @@ class MASZeroAdapter(AbstractAdapter):
         self._block_names: list[str] = (
             self._config.get("blocks") or list(_DEFAULT_BLOCKS)
         )
+        if set(self._block_names) - INIT_BLOCKS.keys():
+            raise ValueError("Unknown MAS-Zero seed block")
 
-        self._trace_enabled: bool = self._config.get("trace", False) or os.environ.get(
+        self._trace_enabled: bool = self._config.get("trace", True) or os.environ.get(
             "MAS_ZERO_TRACE", ""
         ).lower() in ("1", "true", "yes")
+        if self._n_generation < 0 or self._max_round < 1 or self._max_sc < 1:
+            raise ValueError("Invalid MAS-Zero iteration counts")
+        if "debug_max" in self._config:
+            raise ValueError("debug_max is not implemented in this RAG variant")
 
         logger.info(
             "MASZeroAdapter: meta=%s node=%s verifier=%s blocks=%s "
@@ -119,6 +138,15 @@ class MASZeroAdapter(AbstractAdapter):
     def name(self) -> str:
         return "mas_zero"
 
+    def effective_config(self) -> dict[str, Any]:
+        return {"variant": "mas_zero_rag_self_feedback_v2", "generation_mode": "per_task",
+                "model": self._model, "meta_model": self._meta_model,
+                "verifier_model": self._verifier_model, "n_generation": self._n_generation,
+                "blocks": self._block_names, "max_round": self._max_round,
+                "max_sc": self._max_sc, "fitness_threshold": self._fitness_threshold,
+                "resource_limits": asdict(self._limits), "trace": self._trace_enabled,
+                "stop_policy": "best_completed_candidate_by_self_fitness_without_new_call"}
+
     def generate_system(self, question: str) -> str:
         """MAS-Zero designs a fresh architecture per question inside execute().
 
@@ -132,12 +160,13 @@ class MASZeroAdapter(AbstractAdapter):
 
     # ── tool closures ─────────────────────────────────────────────────────────
 
-    def _make_tool_closures(self, tracker: TokenTracker) -> tuple[Any, Any, Any]:
+    def _make_tool_closures(self, tracker: TokenTracker, session: ResourceSession) -> tuple[Any, Any, Any]:
         last_retrieved: list[Document] = []
         retriever = self._retriever
 
         def retrieve_fn(query: str, top_k: int = 20) -> str:
             nonlocal last_retrieved
+            session.tool()
             with tracker.track_tool("retrieve", query, top_k) as results:
                 docs, formatted = do_retrieve(retriever, query, top_k)
                 last_retrieved = docs
@@ -146,6 +175,7 @@ class MASZeroAdapter(AbstractAdapter):
 
         def rerank_fn(query: str, top_k: int = 10) -> str:
             nonlocal last_retrieved
+            session.tool()
             with tracker.track_tool("rerank", query, top_k) as results:
                 docs, formatted = do_rerank(retriever, query, last_retrieved, top_k)
                 last_retrieved = docs
@@ -153,28 +183,15 @@ class MASZeroAdapter(AbstractAdapter):
             return formatted
 
         def calc_fn(expression: str) -> str:
+            session.tool()
             with tracker.track_tool("calculate", expression, 0):
                 result = do_calculate(expression)
             return result
 
         return retrieve_fn, rerank_fn, calc_fn
 
-    def _usage_cb(self, tracker: TokenTracker, model: str) -> Callable[[int, int], None]:
-        def cb(prompt_tokens: int, completion_tokens: int) -> None:
-            tracker.log_llm_call(
-                model=model,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                latency_ms=0,
-            )
-
-        return cb
-
     # ── meta-model (propose / reflexion) ──────────────────────────────────────
 
-    @backoff.on_exception(
-        backoff.expo, (openai.RateLimitError, openai.APITimeoutError), max_tries=3
-    )
     def _call_meta(
         self,
         messages: list[dict],
@@ -184,23 +201,21 @@ class MASZeroAdapter(AbstractAdapter):
         client = openai.OpenAI(
             base_url=os.environ.get("OPENAI_BASE_URL"),
             api_key=os.environ.get("OPENAI_API_KEY"),
+            max_retries=0,
+            timeout=60.0,
         )
-        response = client.chat.completions.create(
+        response = completion_request(client, usage_callback, uuid4().hex,
             model=self._meta_model,
             messages=messages,
             response_format={"type": "json_object"},
         )
-        usage = response.usage
-        if usage:
-            usage_callback(usage.prompt_tokens, usage.completion_tokens)
-
         text = response.choices[0].message.content or ""
         try:
             solution = json.loads(text)
         except json.JSONDecodeError:
             logger.warning("Meta-model returned invalid JSON")
             return None
-        if not all(k in solution for k in ("name", "thought", "code")):
+        if not isinstance(solution, dict) or not all(isinstance(solution.get(k), str) for k in ("name", "thought", "code")):
             logger.warning("Meta-model missing required keys")
             return None
         if "def forward(self, taskInfo):" not in solution["code"]:
@@ -222,10 +237,11 @@ class MASZeroAdapter(AbstractAdapter):
         agent_class: type,
         task_info: Info,
     ) -> Info:
-        namespace: dict[str, Any] = {}
+        namespace: dict[str, Any] = {"LLMAgentBase": agent_class, "Info": Info,
+                                     "__builtins__": __builtins__}
         exec(  # noqa: S102 — running model-generated architecture by design
             code,
-            {"LLMAgentBase": agent_class, "Info": Info, "__builtins__": __builtins__},
+            namespace,
             namespace,
         )
         forward_fn = namespace.get("forward")
@@ -239,12 +255,16 @@ class MASZeroAdapter(AbstractAdapter):
 
     @staticmethod
     def _extract_answer(content: str) -> str:
-        match = re.search(ANSWER_PATTERN, content or "")
-        answer = match.group(1).strip() if match else (content or "").strip()
+        content = content or ""
+        # make_final_answer appends this delimiter after the reasoning, which
+        # itself can contain an earlier "Answer:". Preserve multiline answers.
+        if "\n\nAnswer:" in content:
+            answer = content.rsplit("\n\nAnswer:", 1)[1].strip()
+        else:
+            match = re.search(ANSWER_PATTERN, content)
+            answer = match.group(1).strip() if match else content.strip()
         if TOO_HARD_MARK in answer:
             answer = answer.split(TOO_HARD_MARK)[0].strip()
-        if not match and "\n" in answer:
-            answer = answer.split("\n")[-1].strip()
         return answer
 
     # ── main entry point ──────────────────────────────────────────────────────
@@ -258,9 +278,16 @@ class MASZeroAdapter(AbstractAdapter):
         tracker = TokenTracker(
             question_id=question_id,
             question=question,
-            gold_answer=gold_answer,
+            gold_answer="",  # No reference answer in objects reachable by generated code.
         )
 
+        root = Path(self._run_context.get("artifact_dir", "logs/mas_zero"))
+        identity = sha256(question_id.encode()).hexdigest()[:16]
+        self._question_artifacts = root / f"{identity}_{uuid4().hex}"
+        self._question_artifacts.mkdir(parents=True, exist_ok=False)
+        session = ResourceSession(tracker, self._limits, self._question_artifacts / "events.jsonl")
+        tracker.tool_event_sink = session.write
+        self._diagnostics: list[dict] = []
         trace: MASZeroTrace | None = None
         if self._trace_enabled:
             trace = MASZeroTrace(
@@ -272,11 +299,11 @@ class MASZeroAdapter(AbstractAdapter):
                 n_generation=self._n_generation,
             )
 
-        node_cb = self._usage_cb(tracker, self._model)
-        meta_cb = self._usage_cb(tracker, self._meta_model)
-        verifier_cb = self._usage_cb(tracker, self._verifier_model)
+        node_cb = TrackedCompletion(session, "answer_execution")
+        meta_cb = TrackedCompletion(session, "construction")
+        verifier_cb = TrackedCompletion(session, "internal_verification")
 
-        retrieve_fn, rerank_fn, calc_fn = self._make_tool_closures(tracker)
+        retrieve_fn, rerank_fn, calc_fn = self._make_tool_closures(tracker, session)
 
         system = AgentSystem()
         system.node_model = self._model
@@ -289,7 +316,16 @@ class MASZeroAdapter(AbstractAdapter):
         system._calc_fn = calc_fn
         system._usage_callback = node_cb
 
-        agent_class = self._traced_agent_class(trace) if trace is not None else LLMAgentBase
+        node_model = self._model
+
+        class BoundAgent(LLMAgentBase):
+            def __init__(self, *args, **kwargs):
+                # Generated code may omit the callback/model; accounting still applies.
+                kwargs["usage_callback"] = node_cb
+                kwargs["model"] = node_model
+                super().__init__(*args, **kwargs)
+
+        agent_class = BoundAgent
         task_info = Info("task", "user", question, None, None, None, -1)
 
         candidates: list[dict] = []
@@ -311,13 +347,20 @@ class MASZeroAdapter(AbstractAdapter):
                 "sub_tasks": None,
                 "agents": None,
                 "error": None,
+                "error_type": None,
+                "error_stage": None,
             }
+            stopped = None
+            execution_stage = "candidate_execution"
             try:
+                session.check()
                 result = self._exec_forward(code, system, agent_class, task_info)
                 content = result.content if hasattr(result, "content") else ""
+                cand["thinking"] = content
                 cand["answer"] = self._extract_answer(content)
                 cand["sub_tasks"] = getattr(result, "sub_tasks", None)
                 cand["agents"] = getattr(result, "agents", None)
+                execution_stage = "internal_feedback"
                 cand["fitness"], cand["feedback"] = mas_feedback(
                     question,
                     cand["sub_tasks"],
@@ -326,9 +369,14 @@ class MASZeroAdapter(AbstractAdapter):
                     model=self._verifier_model,
                     usage_callback=verifier_cb,
                 )
+            except BudgetExhausted as e:
+                cand["error"] = str(e)
+                cand["error_type"], cand["error_stage"] = type(e).__name__, execution_stage
+                stopped = e
             except Exception as e:  # generated code / runtime failure
                 logger.warning("Candidate '%s' failed: %s", name, e)
                 cand["error"] = str(e)
+                cand["error_type"], cand["error_stage"] = type(e).__name__, execution_stage
             candidates.append(cand)
             memory.append({cand["answer"]: round(cand["fitness"], 3)})
             if trace is not None:
@@ -340,13 +388,21 @@ class MASZeroAdapter(AbstractAdapter):
                         thought=thought,
                         code=code,
                         answer=cand["answer"],
+                        thinking=cand.get("thinking", ""),
                         fitness=cand["fitness"],
                         feedback=cand["feedback"],
                         sub_tasks=cand["sub_tasks"],
                         agents=cand["agents"],
                         error=cand["error"],
+                        error_type=cand["error_type"],
+                        error_stage=cand["error_stage"],
                     )
                 )
+            session.write({"kind": "candidate", **cand})
+            if trace is not None:
+                self._save_trace(trace)
+            if stopped:
+                raise stopped
             return cand
 
         try:
@@ -374,7 +430,10 @@ class MASZeroAdapter(AbstractAdapter):
                     self._meta_iterations(
                         question, archive, evaluate, memory, meta_cb, trace
                     )
+                except BudgetExhausted:
+                    raise
                 except Exception as e:
+                    self._diagnostics.append({"stage": "meta_iteration", "error": str(e)})
                     logger.warning("Meta-iteration aborted: %s", e)
 
             # 3. Self-verification across all candidates.
@@ -384,6 +443,15 @@ class MASZeroAdapter(AbstractAdapter):
                 trace.selected_index = best_idx
                 trace.selected_answer = answer
 
+        except BudgetExhausted as e:
+            tracker.set_error(str(e))
+            usable = [(i, c) for i, c in enumerate(candidates) if c["answer"].strip()]
+            best_idx, best = max(usable, key=lambda pair: pair[1]["fitness"]) if usable else (-1, {"answer": ""})
+            answer = best["answer"]
+            self._diagnostics.append({"stage": "budget", "error": str(e), "selected_index": best_idx})
+            if trace is not None:
+                trace.selected_index, trace.selected_answer = best_idx, answer
+                trace.execution_error = f"budget_exhausted: {e}"
         except Exception as e:
             logger.error("MAS-Zero execution failed: %s", e)
             tracker.set_error(str(e))
@@ -391,10 +459,25 @@ class MASZeroAdapter(AbstractAdapter):
                 trace.execution_error = str(e)
             answer = ""
 
+        if not answer.strip() and not tracker._error:
+            tracker.set_error("No candidate produced a nonempty answer")
         if trace is not None:
             self._save_trace(trace)
 
-        return answer, tracker.to_question_log(answer)
+        log = tracker.to_question_log(answer)
+        log.gold_answer = gold_answer
+        if any(d["stage"] == "budget" for d in self._diagnostics):
+            log.status, log.failure_kind = "budget_exhausted", "budget_exhausted"
+        elif log.error:
+            log.failure_kind = "unknown"
+        log.resource_summary = session.summary()
+        log.resource_summary["candidate_failures"] = sum(bool(c["error"]) for c in candidates)
+        log.resource_summary["diagnostics"] = self._diagnostics
+        log.artifact_paths["events"] = str(session.journal)
+        if trace is not None:
+            log.artifact_paths["trace"] = str(self._question_artifacts / "trace.json")
+        session.write({"kind": "question_end", "status": log.status, "resources": log.resource_summary})
+        return answer, log
 
     def _meta_iterations(
         self,
@@ -455,7 +538,8 @@ class MASZeroAdapter(AbstractAdapter):
             reflect += f"\n\nmemory: {json.dumps(memory)}"
             msg_list.append({"role": "user", "content": reflect})
 
-            next_solution = self._call_meta(msg_list, meta_cb)
+            if n + 1 < self._n_generation:
+                next_solution = self._call_meta(msg_list, meta_cb)
 
     def _select_answer(
         self,
@@ -471,28 +555,23 @@ class MASZeroAdapter(AbstractAdapter):
                 question, candidates,
                 model=self._verifier_model, usage_callback=verifier_cb,
             )
+        except BudgetExhausted:
+            raise
         except Exception as e:
+            self._diagnostics.append({"stage": "selection_fallback", "error": str(e)})
             logger.warning("Self-verification failed: %s", e)
             best_idx = max(
                 range(len(candidates)),
-                key=lambda i: candidates[i].get("fitness", 0.0),
+                key=lambda i: (bool(candidates[i].get("answer", "").strip()), candidates[i].get("fitness", 0.0)),
             )
         return candidates[best_idx]["answer"], best_idx
 
     # ── tracing helpers ───────────────────────────────────────────────────────
 
-    @staticmethod
-    def _traced_agent_class(trace: MASZeroTrace) -> type:
-        # Trace captured at architecture granularity (CandidateTrace); the agent
-        # subclass is a hook point for finer tracing if needed later.
-        return LLMAgentBase
-
     def _save_trace(self, trace: MASZeroTrace) -> None:
         logger.debug("MAS-Zero trace:\n%s", trace.summary())
         try:
-            trace_dir = os.path.join("logs", "mas_zero")
-            os.makedirs(trace_dir, exist_ok=True)
-            path = os.path.join(trace_dir, f"trace_{trace.question_id}.json")
+            path = self._question_artifacts / "trace.json"
             with open(path, "w") as f:
                 f.write(trace.model_dump_json(indent=2))
             logger.info("Trace saved to %s", path)

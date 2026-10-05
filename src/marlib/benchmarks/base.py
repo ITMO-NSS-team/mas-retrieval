@@ -235,7 +235,7 @@ def build_index(
         metadatas: list[Metadata] = []
         for d in batch_docs:
             meta = {"title": str(d["title"]), "doc_id": str(d["doc_id"])}
-            for key in ("company", "doc_type", "doc_period", "gics_sector"):
+            for key in ("company", "doc_type", "doc_period", "gics_sector", "article_id", "source_url"):
                 if d.get(key):
                     meta[key] = str(d[key])
             metadatas.append(meta)
@@ -255,3 +255,13 @@ def build_index(
             torch.mps.empty_cache()
 
     logger.info(f"Collection size: {collection.count()} documents")
+    from importlib.metadata import version
+    from marlib.provenance import file_hash
+
+    (spec.index_path / "index_provenance.json").write_text(json.dumps({
+        "corpus_sha256": file_hash(spec.corpus_path), "embedder": embedder_model,
+        "collection": spec.collection, "document_count": collection.count(),
+        "distance": "cosine", "batch_size": batch_size,
+        "packages": {name: version(name) for name in ("chromadb", "FlagEmbedding", "torch", "transformers")},
+        "model_revision": None,  # Model repository revisions are not yet pinned.
+    }, indent=2) + "\n")

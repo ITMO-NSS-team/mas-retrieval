@@ -1,6 +1,6 @@
 """Self-contained MAS-Zero runtime.
 
-Faithful extraction of MAS-Zero's LLMAgentBase / AgentSystem (search.py +
+Local adaptation of MAS-Zero's LLMAgentBase / AgentSystem (search.py +
 code_archive.py), adapted to:
 - Use the OpenAI client directly (no global model_sampler_map / shared_vars)
 - Support a usage callback for token tracking
@@ -19,10 +19,11 @@ import os
 import re
 import uuid
 from collections import namedtuple
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
-import backoff
 import openai
+from uuid import uuid4
+from marlib.tracing.resources import completion_request
 
 logger = logging.getLogger(__name__)
 
@@ -200,9 +201,6 @@ class LLMAgentBase:
         )
 
 
-@backoff.on_exception(
-    backoff.expo, (openai.RateLimitError, openai.APITimeoutError), max_tries=5
-)
 def _get_json_response(
     messages: list[dict],
     model: str | None,
@@ -214,6 +212,8 @@ def _get_json_response(
     client = openai.OpenAI(
         base_url=os.environ.get("OPENAI_BASE_URL"),
         api_key=os.environ.get("OPENAI_API_KEY"),
+        max_retries=0,
+        timeout=60.0,
     )
 
     kwargs: dict[str, Any] = {"model": model or "gpt-4o-mini", "messages": messages}
@@ -221,11 +221,9 @@ def _get_json_response(
         kwargs["temperature"] = temperature
     kwargs["response_format"] = {"type": "json_object"}
 
+    logical_id = uuid4().hex
     for _ in range(5):
-        response = client.chat.completions.create(**kwargs)
-        usage = response.usage
-        if usage and usage_callback:
-            usage_callback(usage.prompt_tokens, usage.completion_tokens)
+        response = completion_request(client, usage_callback, logical_id, **kwargs)
 
         text = response.choices[0].message.content or ""
         try:
@@ -240,7 +238,7 @@ def _get_json_response(
         output_fields,
         model,
     )
-    return {k: "" for k in output_fields}
+    raise ValueError(f"No valid JSON for required fields {output_fields} after 5 attempts")
 
 
 class AgentSystem:

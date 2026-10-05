@@ -17,6 +17,7 @@ class CandidateTrace(BaseModel):
     generation: int = -1  # -1 for initial blocks
     name: str = ""
     thought: str = ""
+    thinking: str = ""
     code: str = ""
     answer: str = ""
     fitness: float = 0.0
@@ -24,6 +25,8 @@ class CandidateTrace(BaseModel):
     sub_tasks: str | None = None
     agents: str | None = None
     error: str | None = None
+    error_type: str | None = None
+    error_stage: str | None = None
 
 
 class MASZeroTrace(BaseModel):

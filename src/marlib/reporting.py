@@ -56,6 +56,25 @@ def _judge_token_totals(r: SystemResults) -> tuple[int, int]:
     return in_tok, out_tok
 
 
+def system_cost(r: SystemResults, fallback_model: str) -> float | None:
+    """Price actual model events; unknown billed usage is not a zero-cost call."""
+    totals: dict[str, list[int]] = {}
+    for log in r.question_logs:
+        if log.llm_calls:
+            if any(not call.usage_known for call in log.llm_calls):
+                return None
+            for call in log.llm_calls:
+                pair = totals.setdefault(call.model, [0, 0])
+                pair[0] += call.prompt_tokens
+                pair[1] += call.completion_tokens
+        else:
+            pair = totals.setdefault(fallback_model, [0, 0])
+            pair[0] += log.total_prompt_tokens
+            pair[1] += log.total_completion_tokens
+    prices = [run_cost(model, *tokens) for model, tokens in totals.items()]
+    return None if any(p is None for p in prices) else sum(prices)
+
+
 def _stat(values: list[float | None]) -> tuple[float, float | None, int]:
     """(mean, sample std or None when <2 points, n) over the non-None values."""
     vals = [v for v in values if v is not None]
@@ -94,7 +113,7 @@ def _cell(results: list[SystemResults], model: str, judge_model: str) -> str:
         i, o = _run_token_totals(r)
         ins.append(i)
         outs.append(o)
-        costs.append(run_cost(model, i, o))
+        costs.append(system_cost(r, model))
         ji, jo = _judge_token_totals(r)
         judge_tok_total += ji + jo
         jcosts.append(run_cost(judge_model, ji, jo))
@@ -109,9 +128,10 @@ def _cell(results: list[SystemResults], model: str, judge_model: str) -> str:
     return "\n".join(
         [
             acc,
+            "n   " + "/".join(str(r.metric_denominators.get(_ACCURACY_METRIC, sum(_ACCURACY_METRIC in q.metrics for q in r.question_logs))) for r in results),
             f"in  {_pm(im, isd, _htok)}",
             f"out {_pm(om, osd, _htok)}",
-            "$   —" if cn == 0 else f"$   {_pm(cm, csd, _hcost)}",
+            "$   —" if cn == 0 else f"$   {_pm(cm, csd, _hcost)} (n={cn}/{len(results)})",
             # Judge cost is "—" when llm_accuracy was not scored (no judge tokens).
             "j$  —" if judge_tok_total == 0 else f"j$  {_pm(jm, jsd, _hcost)}",
         ]
