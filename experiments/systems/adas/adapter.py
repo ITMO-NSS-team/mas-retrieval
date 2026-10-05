@@ -15,14 +15,15 @@ import json
 import logging
 import os
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import backoff
 import openai
 
 from marlib.adapters.base import AbstractAdapter, register
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
-from marlib.retriever.core import Document, Retriever
+if TYPE_CHECKING:
+    from marlib.retriever.core import Document, Retriever
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
 

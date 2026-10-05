@@ -90,6 +90,20 @@ class GeneratedSingleAgentAdapter(SingleAgentAdapter):
             raise RuntimeError("Prompt construction is accounted inside execute()")
         return self._prompt
 
+    def _construction_messages(self):
+        return [{"role": "system", "content": GENERATOR_INSTRUCTION},
+                {"role": "user", "content": task_description(
+                    self._benchmark_description, self._sample_questions)}]
+
+    def _decode_generated(self, text):
+        return text.strip()
+
+    def _generation_options(self):
+        return {}
+
+    def _artifact_content(self):
+        return {"system_prompt": self._prompt}
+
     def _prepare_prompt(self, tracker: TokenTracker, artifacts: Path):
         if self._construction_attempted:
             if self._prompt is None:
@@ -101,22 +115,20 @@ class GeneratedSingleAgentAdapter(SingleAgentAdapter):
         session = ResourceSession(tracker, self._construction_limits,
                                   artifacts / "construction.jsonl", coverage="prompt_generator_chat_completions")
         self._construction_journal = session.journal
-        messages = [{"role": "system", "content": GENERATOR_INSTRUCTION},
-                    {"role": "user", "content": task_description(
-                        self._benchmark_description, self._sample_questions)}]
+        messages = self._construction_messages()
         raw_output, error = None, None
         try:
             with openai.OpenAI(base_url=os.environ.get("OPENAI_BASE_URL"),
                                api_key=os.environ.get("OPENAI_API_KEY"), max_retries=0) as client:
                 response = completion_request(client, TrackedCompletion(session, "construction"),
                                               uuid4().hex, model=self._meta_model, messages=messages,
-                                              temperature=self._generator_temperature)
+                                              temperature=self._generator_temperature, **self._generation_options())
             raw_output = response.choices[0].message.content
             if not isinstance(raw_output, str) or not raw_output.strip():
                 raise ValueError("Generator returned an empty system instruction")
             if getattr(response.choices[0], "finish_reason", None) == "length":
                 raise ValueError("Generator instruction was truncated by the output limit")
-            self._prompt = raw_output.strip()
+            self._prompt = self._decode_generated(raw_output)
         except BaseException as exc:
             error = f"{type(exc).__name__}: {exc}"
             raise
@@ -124,7 +136,7 @@ class GeneratedSingleAgentAdapter(SingleAgentAdapter):
             self._construction_summary = session.summary()
             self._construction_path.write_text(json.dumps({
                 "model": self._meta_model, "messages": messages, "raw_output": raw_output,
-                "system_prompt": self._prompt, "error": error,
+                **self._artifact_content(), "error": error,
                 "resources": self._construction_summary,
             }, ensure_ascii=False, indent=2) + "\n")
             session.write({"kind": "construction_end", "error": error})

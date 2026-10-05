@@ -42,6 +42,15 @@ naive_rag = ["openai>=2.16.0", "python-dotenv>=1.0.0"]
 meta_agent = ["openai>=2.16.0"]
 adas = ["openai>=2.16.0", "backoff>=2.2.0"]
 mas_zero = ["openai>=2.16.0", "backoff>=2.2.0"]
+comparison = [
+    "pydantic-ai-slim[openai,mcp]==1.56.0",
+    "openai>=2.16.0,<3",
+    "fastmcp==2.14.5",
+    "backoff>=2.2.0",
+    "langfuse>=3.6.1,<4",
+    "loguru>=0.7.3",
+    "pillow>=11.3.0",
+]
 
 # fedotmas / automas: install from local source
 #   uv pip install -e automas-research/
@@ -52,7 +61,9 @@ mas_zero = ["openai>=2.16.0", "backoff>=2.2.0"]
 # sdk ship in lockstep, so a mix (api 1.38 from automas' old `<1.39` cap + sdk
 # 1.41 from the exporter) breaks `import chromadb` (ImportError:
 # ReadableLogRecord). Pin the whole stack to the 1.39–1.41 window so api / sdk /
-# exporter stay aligned. (automas' pyproject cap was relaxed to match.)
+# exporter stay aligned. The inspected local AutoMAS checkout still declares
+# the older cap; install its source with --no-deps for the tested comparison
+# environment, rather than allowing it to replace this OpenTelemetry stack.
 # Constraints only bound versions of deps that are already required.
 constraint-dependencies = [
     "opentelemetry-api>=1.39,<1.42",

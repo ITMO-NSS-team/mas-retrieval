@@ -134,7 +134,9 @@ embedding model repository revisions are not yet pinned.
 
 ### MAS-Zero variant and resource accounting
 
-The evaluated implementation is named `mas_zero_rag_self_feedback_v2` in metadata.
+The current implementation is named `mas_zero_rag_self_feedback_v3` in metadata.
+It runs generated candidates in supervised workers; the earlier v2 condition
+remains available with `isolate_generated_code: false`.
 It retains seeds, per-question meta-iterations, internal feedback and selection.
 It is an adaptation of [upstream MAS-Zero](https://github.com/SalesforceAIResearch/MAS-Zero/tree/66b901264eaf809ed03beaf696d34660ae7de71e),
 with differences documented in the audit. `one_time` is rejected.
@@ -160,15 +162,21 @@ each question attempt inside the run. Per-question JSONL checkpoints are written
 after evaluation. A hard process interruption can leave unmatched start events;
 those requests have unknown usage and require reconciliation.
 
-The current budgets are **cooperative** and cover MAS-Zero helpers plus the
-`single_agent` / `generated_single_agent` Chat Completions clients and local tools. Request/tool counts
+Request admission now covers MetaMAS CL/QL, MAS-Zero, `adas_budgeted`,
+`single_agent` and `generated_single_agent`, including MetaMAS MCP primitives. Request/tool counts
 are reserved before instrumented calls; output capacity is reserved across
 threads. Token limits stop on observed usage, so input tokens can overshoot a
 threshold. Unknown usage stops further calls when a token threshold is set.
-Wall time is checked at call boundaries with a per-request network timeout;
-it does not kill arbitrary generated Python. Generated code can also bypass
-helpers by importing clients directly. Process isolation and a common transport
-for external framework/MCP calls remain prerequisites for matched-budget claims.
+Async agent phases are cancelled at their wall deadline, with per-request
+network timeouts as well. Generated Python in `adas_budgeted` and MAS-Zero v3
+runs in separate processes whose process groups are killed on timeout or
+budget stop. Model/tool calls go through the parent process and its ledger.
+These workers receive no API credentials or gold answer, and permit only the
+documented imports/helpers. This is not an OS security sandbox. A cancelled
+retrieval thread can finish its computation after the deadline, and cancelling
+an API request does not establish that the provider stopped billing. Such
+request usage remains unknown. MAS-Zero v2 and historical `adas` retain their
+in-process execution semantics.
 CLI rejects resource-limit configurations for unsupported adapters.
 
 On a budget stop, MAS-Zero returns the nonempty completed candidate with highest
@@ -185,7 +193,8 @@ and downloaded snapshot are retained. `configs/run_plan.json` marks both FRAMES
 grids `enabled: false`; `scripts/estimate_runs.py` excludes them from active
 totals and lists them separately. The active estimate includes the FinanceBench
 MAS-Zero comparison and the generated-instruction control. It does not yet price
-the multiple-budget sweep or `adas_budgeted`.
+the additional levels of a multiple-budget sweep. `adas_budgeted` is now
+included as a provisional single-budget condition.
 
 `generated_single_agent` implements the CL instruction control. The generator
 receives the benchmark description and the same first three unlabelled examples
@@ -200,8 +209,8 @@ instead of a single aggregate usage event. They default to temperature 0.1,
 4096 output tokens per request, and 50 API attempts per answer. These settings
 are explicit in the new `single_agent_accounted_v1` condition; historical runs
 remain unchanged. On budget exhaustion the agent returns an empty failed answer
-without an extra finalization call. Wall limits remain call-boundary checks,
-not hard process termination.
+without an extra finalization call. Async phases now have cancellation deadlines;
+only generated-code workers have process termination.
 
 Construction and execution have separate resource sessions. Generated instruction,
 generator inputs/output, errors and event journals are saved in the run artifacts.
@@ -235,7 +244,113 @@ just run --benchmark financebench --systems single_agent generated_single_agent 
   --note "technical pilot; no accuracy tuning"
 ```
 
-This command does not yet include MetaMAS: its actual request accounting,
-construction events, and MCP tool enforcement remain to be implemented. The
-code-generator control and process isolation are also pending. Accordingly,
-experiments A/B/E are not ready for final comparisons. No live pilot has run.
+The complete matched execution pilot now uses `configs/finance_matched.pilot.json`
+for MetaMAS CL, Agentic RAG, generated instruction CL, and `adas_budgeted` CL.
+All four use the same execution limits; the three generators also have equal,
+separate construction limits. No live pilot has run, and the final budget grid
+must be selected from technical usage/feasibility before comparative accuracy.
+
+### MetaMAS and the code-generator control
+
+MetaMAS uses its original PoolGenerator, GraphGenerator, schema validation and
+DAG execution. Dedicated tracked clients replace private generator/node clients.
+All nodes use the selected executor model, even if the generated pool proposes
+a different one; the proposal is saved in `workflow.json`. Construction and
+pipeline traces are retained, including a partial pool if graph creation fails.
+External framework Python source hashes are recorded in effective metadata.
+
+Each MetaMAS node gets its own MCP stdio server exposing only `retrieve`,
+`rerank`, and `calculate`. A hook in the parent reserves the common tool budget
+before dispatch, collects source IDs and latency, and journals failures. Tools
+within one node run sequentially because rerank uses its preceding retrieval;
+nodes within a DAG level retain upstream parallel execution. Budget stops are
+latched so upstream exception wrapping cannot hide them or resume requests.
+CL construction is charged once; QL uses one full-answer session for generation
+and execution. The stop policy is an empty answer without another model call.
+
+`adas_budgeted` is a separate CL condition; original `adas` remains available.
+It offers the ADAS RAG seed blocks and the same benchmark description/three
+unlabelled examples as MetaMAS. It makes one code proposal, with no accuracy
+selection, repair cycle, or fallback to a seed. Invalid construction fails the
+repeat. These choices differ from historical ADAS and are recorded as
+`adas_budgeted_cl_v1`. All node model/temperature settings are enforced by the
+parent; JSON format retries count as model attempts. MAS-Zero v3 uses the same
+worker supervisor but preserves its generated node temperatures, five JSON
+attempts, candidate search and internal verification. The restricted execution
+policy is included in both generators' prompts.
+
+### Run preparation on Linux
+
+The current Intel Mac has no wheel for the required `torch>=2.10`; the user will
+run experiments on Linux. Local checks cover the real AutoMAS package, real SDKs
+with mocked HTTP, actual MCP subprocesses, and worker termination. They do not
+establish GPU/retrieval readiness or provider access on the Linux host.
+
+From the project root on Linux:
+
+```bash
+uv sync --group dev --group benchmarks --group comparison
+uv pip install --python .venv/bin/python --no-deps -e /path/to/automas-research
+uv run --no-sync python -m pytest
+```
+
+Replace `/path/to/automas-research` with the local framework checkout. Its older
+OpenTelemetry dependency cap conflicts with this harness; `--no-deps` retains
+the comparison stack tested here and avoids installing unrelated browser/media
+features. The `comparison` group pins Pydantic AI 1.56.0 and FastMCP 2.14.5. Keep
+using `--no-sync` after this source installation. The framework source hashes
+record the actual checkout used; compatibility must be checked again if it differs.
+
+Reuse the established FinanceBench data/index if available. Otherwise prepare
+only FinanceBench (this downloads data and embedding weights, with no LLM calls):
+
+```bash
+uv run --no-sync download-benchmarks --benchmark financebench
+uv run --no-sync prepare-corpus --benchmark financebench
+uv run --no-sync build-index --benchmark financebench
+uv run --no-sync python scripts/preflight_finance.py --load-retriever \
+  --output reports/finance_preflight_linux.json
+```
+
+The preflight checks all 150 question IDs, evidence-page coverage, corpus/index
+hash agreement and a retrieval query. The query runs with offline model loading;
+missing weights fail instead of triggering a download. `ready` refers to this
+retrieval check; provider access is explicitly untested. Missing evidence must
+be resolved without silently dropping questions. Save the data and index along
+with the reported hashes. Index model repository revisions are still unpinned.
+
+For these comparisons route all adapters through the same OpenRouter endpoint:
+set `OPENAI_BASE_URL=https://openrouter.ai/api/v1` and configure `OPENAI_API_KEY`
+and `OPENROUTER_API_KEY` locally. Do not put credentials in run configuration files.
+The following commands **make paid model calls** and remain proposed pilots:
+
+```bash
+just run --benchmark financebench \
+  --systems automas single_agent generated_single_agent adas_budgeted \
+  --model openai/gpt-4o-mini --sample-n 5 --generation-mode one_time \
+  --adapter-config configs/finance_matched.pilot.json \
+  --condition-id finance_matched_pilot --note "technical pilot; no accuracy tuning"
+
+just run --benchmark financebench --systems mas_zero automas single_agent \
+  --model openai/gpt-4o-mini --sample-n 5 --generation-mode per_task \
+  --adapter-config configs/finance_ql.pilot.json \
+  --condition-id finance_ql_pilot --note "technical pilot; no accuracy tuning"
+```
+
+These are 20 and 15 answers respectively. The second Agentic RAG condition uses
+the larger competitor budget and is intentionally a separate pilot condition.
+Do not pool it with the smaller-budget baseline. The five FinanceBench pilot
+questions overlap the proposed full-150 final set; do not tune on their accuracy.
+
+Decompose a saved system result by phase without any API calls:
+
+```bash
+uv run --no-sync python scripts/phase_costs.py results/RUN/SYSTEM.json \
+  --output reports/phase_costs.json
+```
+
+The script sums actual call events, charges CL construction once, and produces
+a calculated reuse curve from the saved workflow and mean execution cost.
+Unknown usage makes the affected cost unknown. Legacy aggregate logs are rejected.
+The USD figures use the dated standard uncached tariff in `configs/run_plan.json`,
+exclude gateway fees/cache discounts, and show recorded judge usage separately.

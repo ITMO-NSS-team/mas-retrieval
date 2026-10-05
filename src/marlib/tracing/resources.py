@@ -56,6 +56,8 @@ class ResourceSession:
         self.reserved_output = self.unknown_usage = 0
         self.logical_ids: set[str] = set()
         self.coverage = coverage
+        self.stop_reason: str | None = None
+        self.async_deadline = False
         self._events: list[dict] = []
         if journal:
             journal.parent.mkdir(parents=True, exist_ok=True)
@@ -73,23 +75,32 @@ class ResourceSession:
                     f.flush()
 
     def check(self):
+        if self.stop_reason:
+            raise BudgetExhausted(self.stop_reason)
         lim = self.limits
         if lim.wall_seconds and time.perf_counter() - self.started >= lim.wall_seconds:
-            raise BudgetExhausted("wall_seconds")
+            self.stop("wall_seconds")
         for key, used in (("max_input_tokens", self.input_tokens),
                           ("max_output_tokens", self.output_tokens),
                           ("max_total_tokens", self.input_tokens + self.output_tokens)):
             cap = getattr(lim, key)
             if cap is not None and used >= cap:
-                raise BudgetExhausted(key)
+                self.stop(key)
         if self.unknown_usage and any((lim.max_input_tokens, lim.max_output_tokens, lim.max_total_tokens)):
-            raise BudgetExhausted("usage_unknown_after_request")
+            self.stop("usage_unknown_after_request")
+
+    def stop(self, reason: str):
+        with self.lock:
+            if not self.stop_reason:
+                self.stop_reason = reason
+                self.write({"kind": "budget_stop", "reason": reason})
+        raise BudgetExhausted(self.stop_reason)
 
     def tool(self):
         with self.lock:
             self.check()
             if self.limits.max_tool_calls is not None and self.tools >= self.limits.max_tool_calls:
-                raise BudgetExhausted("max_tool_calls")
+                self.stop("max_tool_calls")
             self.tools += 1
 
     def _begin(self, phase: str, logical_call_id: str, kwargs: dict):
@@ -100,7 +111,7 @@ class ResourceSession:
             self.check()
             lim = self.limits
             if lim.max_requests is not None and self.requests >= lim.max_requests:
-                raise BudgetExhausted("max_requests")
+                self.stop("max_requests")
             token_key = "max_completion_tokens" if "max_completion_tokens" in kwargs else "max_tokens"
             requested = kwargs.get(token_key)
             output = min(requested, lim.output_per_request) if isinstance(requested, int) else lim.output_per_request
@@ -111,12 +122,12 @@ class ResourceSession:
                 if cap is not None:
                     output = min(output, cap - used - self.reserved_output)
             if output <= 0:
-                raise BudgetExhausted("output_reservation")
+                self.stop("output_reservation")
             timeout = lim.request_timeout
             if lim.wall_seconds:
                 timeout = min(timeout, lim.wall_seconds - (time.perf_counter() - self.started))
                 if timeout <= 0:
-                    raise BudgetExhausted("wall_seconds")
+                    self.stop("wall_seconds")
             self.requests += 1
             self.logical_ids.add(logical_call_id)
             self.reserved_output += output
@@ -191,7 +202,25 @@ class ResourceSession:
                     if self.limits.max_total_tokens is not None else 0,
                     "wall_seconds": time.perf_counter() - self.started,
                     "coverage": self.coverage,
+                    "stop_reason": self.stop_reason,
+                    "async_deadline": self.async_deadline,
                     "hard_wall_timeout": False}
+
+
+async def run_with_deadline(session: ResourceSession, operation):
+    """Cancel an async phase at its wall deadline; this cannot kill CPU threads."""
+    session.async_deadline = True
+    if session.limits.wall_seconds is None:
+        return await operation
+    remaining = session.limits.wall_seconds - (time.perf_counter() - session.started)
+    deadline = asyncio.timeout(max(0, remaining))
+    try:
+        async with deadline:
+            return await operation
+    except TimeoutError:
+        if deadline.expired():
+            session.stop("wall_seconds")
+        raise
 
 
 def tracked_async_client(session: ResourceSession, phase: str, **client_kwargs):
@@ -207,7 +236,7 @@ def tracked_async_client(session: ResourceSession, phase: str, **client_kwargs):
     raw_create = client.chat.completions.create
 
     async def create(**kwargs):
-        logical_id = uuid4().hex
+        logical_id = kwargs.pop("_marlib_logical_call_id", None) or uuid4().hex
         for attempt in range(3):
             try:
                 return await session.create_async(raw_create, phase, logical_id, **kwargs)

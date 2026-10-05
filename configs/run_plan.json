@@ -2,42 +2,155 @@
   "status": "proposal_no_paid_runs_authorized",
   "priority_update": {
     "date": "2026-10-05",
-    "active": ["A_common_budgets", "B_generated_instruction", "C_mas_zero_financebench", "E_construction_reuse"],
-    "deferred": ["D_frames"],
+    "active": [
+      "A_common_budgets",
+      "B_generated_instruction",
+      "C_mas_zero_financebench",
+      "E_construction_reuse"
+    ],
+    "deferred": [
+      "D_frames"
+    ],
     "reason": "User lowered FRAMES priority while its corpus has unresolved coverage gaps.",
-    "next": "Connect MetaMAS and the code-generator control to request/tool accounting; validate process deadlines and shared inputs before matched-budget comparisons.",
+    "next": "Run FinanceBench environment/retrieval preflight on Linux; then choose the paid technical pilot. Final budget grid remains unfrozen.",
     "prompt_control": "Implemented and tested offline; configs/finance_prompt_control.pilot.json. No live pilot yet.",
-    "estimate_scope": "FinanceBench competitor comparison plus generated prompt control. The multi-budget sweep and adas_budgeted remain unpriced until their protocol is fixed."
+    "estimate_scope": "Two technical pilots (matched execution and QL competitor) and a provisional single-budget final package; additional budget sweep is not priced.",
+    "accounting": "MetaMAS CL/QL requests, MCP primitives and construction; adas_budgeted control; supervised generated-code workers for ADAS and MAS-Zero implemented and tested offline."
   },
   "model": "openai/gpt-4o-mini",
   "judge_model": "openai/gpt-4o-mini",
   "price_verified_date": "2026-10-02",
   "price_source": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
   "usd_per_million_input": 0.15,
-  "usd_per_million_output": 0.60,
+  "usd_per_million_output": 0.6,
   "pricing_scope": "standard uncached OpenAI text; gateway fees not included",
   "historical_mas_zero_pilots": [
-    {"run_id": "20260601_145842_financebench_8ebfb5", "n": 10, "input": 343076.8, "output": 19635.2, "seconds": 282.2969156508},
-    {"run_id": "20260610_164057_financebench_8f7511", "n": 3, "input": 249913.66666666666, "output": 13158, "seconds": 345.8560752417}
+    {
+      "run_id": "20260601_145842_financebench_8ebfb5",
+      "n": 10,
+      "input": 343076.8,
+      "output": 19635.2,
+      "seconds": 282.2969156508
+    },
+    {
+      "run_id": "20260610_164057_financebench_8f7511",
+      "n": 3,
+      "input": 249913.66666666666,
+      "output": 13158,
+      "seconds": 345.8560752417
+    }
   ],
   "history_source": "/Users/vadim/dev/aamas-rag/codex-context/MAS_ZERO_HISTORY_2026-10-02.json",
   "assumed_per_answer_usage": {
-    "automas_cl": {"input": 8000, "output": 500, "seconds": 30},
-    "automas_ql": {"input": 28000, "output": 2500, "seconds": 90},
-    "single_agent": {"input": 15000, "output": 1000, "seconds": 60},
-    "generated_single_agent_cl": {"input": 15000, "output": 1000, "seconds": 60},
-    "naive_rag": {"input": 5000, "output": 256, "seconds": 15},
-    "adas_cl": {"input": 20000, "output": 1500, "seconds": 60}
+    "automas_cl": {
+      "input": 8000,
+      "output": 500,
+      "seconds": 30
+    },
+    "automas_ql": {
+      "input": 28000,
+      "output": 2500,
+      "seconds": 90
+    },
+    "single_agent": {
+      "input": 15000,
+      "output": 1000,
+      "seconds": 60
+    },
+    "generated_single_agent_cl": {
+      "input": 15000,
+      "output": 1000,
+      "seconds": 60
+    },
+    "naive_rag": {
+      "input": 5000,
+      "output": 256,
+      "seconds": 15
+    },
+    "adas_cl": {
+      "input": 20000,
+      "output": 1500,
+      "seconds": 60
+    },
+    "adas_budgeted_cl": {
+      "input": 20000,
+      "output": 1500,
+      "seconds": 60
+    }
   },
-  "assumed_cl_construction": {"input": 30000, "output": 3000, "seconds": 60},
-  "assumed_external_judge": {"input": 2000, "output": 150, "seconds": 5},
+  "assumed_cl_construction": {
+    "input": 30000,
+    "output": 3000,
+    "seconds": 60
+  },
+  "assumed_external_judge": {
+    "input": 2000,
+    "output": 150,
+    "seconds": 5
+  },
   "pilot": [
-    {"benchmark": "financebench", "questions": 5, "repeats": 1, "systems": ["mas_zero", "automas_cl", "automas_ql", "single_agent", "generated_single_agent_cl"]},
-    {"benchmark": "frames", "enabled": false, "questions": 5, "repeats": 1, "systems": ["automas_cl", "naive_rag", "single_agent", "adas_cl"]}
+    {
+      "benchmark": "financebench",
+      "condition_id": "matched_execution_pilot",
+      "questions": 5,
+      "repeats": 1,
+      "systems": [
+        "automas_cl",
+        "single_agent",
+        "generated_single_agent_cl",
+        "adas_budgeted_cl"
+      ]
+    },
+    {
+      "benchmark": "financebench",
+      "condition_id": "ql_competitor_pilot",
+      "questions": 5,
+      "repeats": 1,
+      "systems": [
+        "mas_zero",
+        "automas_ql",
+        "single_agent"
+      ]
+    },
+    {
+      "benchmark": "frames",
+      "enabled": false,
+      "questions": 5,
+      "repeats": 1,
+      "systems": [
+        "automas_cl",
+        "naive_rag",
+        "single_agent",
+        "adas_cl"
+      ]
+    }
   ],
   "recommended_final": [
-    {"benchmark": "financebench", "questions": 150, "repeats": 3, "systems": ["mas_zero", "automas_cl", "automas_ql", "single_agent", "generated_single_agent_cl"]},
-    {"benchmark": "frames", "enabled": false, "questions": 200, "repeats": 3, "systems": ["automas_cl", "naive_rag", "single_agent", "adas_cl"]}
+    {
+      "benchmark": "financebench",
+      "questions": 150,
+      "repeats": 3,
+      "systems": [
+        "mas_zero",
+        "automas_cl",
+        "automas_ql",
+        "single_agent",
+        "generated_single_agent_cl",
+        "adas_budgeted_cl"
+      ]
+    },
+    {
+      "benchmark": "frames",
+      "enabled": false,
+      "questions": 200,
+      "repeats": 3,
+      "systems": [
+        "automas_cl",
+        "naive_rag",
+        "single_agent",
+        "adas_cl"
+      ]
+    }
   ],
   "contingency_fraction": 0.5,
   "assumptions": [
@@ -48,8 +161,9 @@
     "FinanceBench pilot is technical only; the proposed full-150 final set includes those IDs. Do not tune by pilot accuracy.",
     "FRAMES pilot/final IDs are disjoint and frozen in configs/frames_ids.",
     "Generated prompt execution is assumed to cost as much as the static agent; this is not measured. CL construction uses the generic planning allowance.",
-    "Common execution-budget experiments still need MetaMAS/code-generator enforcement, isolation, and a fixed budget grid; their additional runs are not estimated here.",
+    "The code-generator control is estimated using historical-ADAS planning assumptions, not measured usage. The final budget grid still requires the technical pilots; additional sweep runs are excluded.",
     "Full cost measurement for other frameworks and FinanceBench environment/index readiness gate final runs. FRAMES is deferred and excluded from active totals.",
-    "Local indexing compute, storage, operator time and gateway fees are excluded."
+    "Local indexing compute, storage, operator time and gateway fees are excluded.",
+    "The pilot has two Agentic RAG conditions with different caps. The provisional final package assumes a single selected condition; an additional final cap condition would require a revised estimate."
   ]
 }

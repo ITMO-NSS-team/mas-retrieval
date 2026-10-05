@@ -65,8 +65,8 @@ def test_failed_request_keeps_partial_cost_and_unknown_usage(tmp_path):
     assert log.total_tokens == 13
     assert len(log.llm_calls) == 2
     events = [json.loads(line) for line in s.journal.read_text().splitlines()]
-    assert [e["kind"] for e in events] == ["session", "llm_start", "llm_end", "llm_start", "llm_end"]
-    assert events[-1]["usage_known"] is False
+    assert [e["kind"] for e in events] == ["session", "llm_start", "llm_end", "llm_start", "llm_end", "budget_stop"]
+    assert events[-2]["usage_known"] is False
 
 
 def test_token_overshoot_is_explicit_and_stops_next_call(tmp_path):
@@ -108,9 +108,13 @@ def test_budget_stop_never_enters_retry(tmp_path):
     with pytest.raises(BudgetExhausted):
         completion_request(c, cb, "two", model="fake")
     assert len(calls) == 1
+    with pytest.raises(BudgetExhausted, match="max_requests"):
+        s.tool()  # A swallowed budget exception cannot resume execution.
+    s = ResourceSession(TokenTracker("q", "q", ""), ResourceLimits(max_tool_calls=1))
     s.tool()
     with pytest.raises(BudgetExhausted, match="max_tool_calls"):
         s.tool()
+    s = ResourceSession(TokenTracker("q", "q", ""), ResourceLimits(wall_seconds=20))
     s.started -= 21
     with pytest.raises(BudgetExhausted, match="wall_seconds"):
         s.check()

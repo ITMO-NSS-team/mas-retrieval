@@ -37,6 +37,17 @@ def fake_model(monkeypatch, fitness="0.5", meta_code=None, fail_node=False):
         assert kw["max_retries"] == 0
         return NS(chat=NS(completions=NS(create=create)))
     monkeypatch.setattr("openai.OpenAI", factory)
+    class AsyncClient:
+        def __init__(self, **kwargs):
+            assert kwargs["max_retries"] == 0
+            async def request(**payload):
+                return create(**payload)
+            self.chat = NS(completions=NS(create=request))
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            pass
+    monkeypatch.setattr("openai.AsyncOpenAI", AsyncClient)
     return payloads
 
 

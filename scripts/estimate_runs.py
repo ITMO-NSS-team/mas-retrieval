@@ -23,7 +23,7 @@ def estimate(plan):
                 costs = [n * cost(u) + grid["repeats"] * cost(construction) for u in usages]
                 hours = [(n * (u["seconds"] + judge["seconds"]) + grid["repeats"] * construction["seconds"]) / 3600 for u in usages]
                 judge_cost = n * cost(judge)
-                row = {"benchmark": grid["benchmark"], "system": system, "answers": n,
+                row = {"benchmark": grid["benchmark"], "condition_id": grid.get("condition_id"), "system": system, "answers": n,
                        "basis": "historical_pilot_extrapolation" if measured else "explicit_planning_assumption",
                        "system_usd": [min(costs), max(costs)], "judge_usd": judge_cost,
                        "serial_hours_including_judge": [min(hours), max(hours)]}

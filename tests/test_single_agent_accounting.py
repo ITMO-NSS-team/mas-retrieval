@@ -42,6 +42,8 @@ def http_models(monkeypatch):
         payloads.append(json.loads(request.content))
         assert replies, "Unexpected extra model request"
         reply = replies.pop(0)
+        if callable(reply):
+            reply = reply(payloads[-1])
         if isinstance(reply, Exception):
             raise reply
         return httpx.Response(200, json=reply)

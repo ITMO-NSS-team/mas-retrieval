@@ -21,6 +21,7 @@ baseline (no decomposition, feedback loop, or self-verification).
 from __future__ import annotations
 
 import json
+import asyncio
 import logging
 import os
 import re
@@ -35,6 +36,7 @@ import openai
 
 from marlib.adapters.base import AbstractAdapter, register
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
+from marlib.adapters.code_execution import run_generated
 if TYPE_CHECKING:
     from marlib.retriever.core import Document, Retriever
 from marlib.tracing.schemas import QuestionLog
@@ -90,9 +92,14 @@ class MASZeroAdapter(AbstractAdapter):
         if self._generation_mode not in (None, "per_task"):
             raise ValueError("MAS-Zero supports per_task only; one_time would mislabel the algorithm")
         self._generation_mode = "per_task"
-        self._limits = ResourceLimits(**self._config.get("resource_limits", {}))
+        self._isolate_code = self._config.get("isolate_generated_code", True)
+        if not isinstance(self._isolate_code, bool):
+            raise ValueError("isolate_generated_code must be boolean")
+        self._limits = ResourceLimits(**{"wall_seconds": 900, **self._config.get("resource_limits", {})})
         if self._limits.scope != "full_answer":
             raise ValueError("MAS-Zero requires full_answer resource limits")
+        if self._isolate_code and self._limits.wall_seconds is None:
+            raise ValueError("Isolated MAS-Zero requires wall_seconds")
 
         self._meta_model: str = self._config.get("meta_model", self._model)
         # Zero-supervision verifier; defaults to the node model (no o3-mini needed).
@@ -141,7 +148,9 @@ class MASZeroAdapter(AbstractAdapter):
         return "mas_zero"
 
     def effective_config(self) -> dict[str, Any]:
-        return {"variant": "mas_zero_rag_self_feedback_v2", "generation_mode": "per_task",
+        return {"variant": "mas_zero_rag_self_feedback_v3" if self._isolate_code else "mas_zero_rag_self_feedback_v2", "generation_mode": "per_task",
+                "isolate_generated_code": self._isolate_code, "security_sandbox": False,
+                "node_temperature_policy": "generated", "worker_deadline": "remaining_full_answer_budget",
                 "model": self._model, "meta_model": self._meta_model,
                 "verifier_model": self._verifier_model, "n_generation": self._n_generation,
                 "blocks": self._block_names, "max_round": self._max_round,
@@ -239,6 +248,17 @@ class MASZeroAdapter(AbstractAdapter):
         agent_class: type,
         task_info: Info,
     ) -> Info:
+        if self._isolate_code:
+            session = system._usage_callback.session
+            value = asyncio.run(run_generated(
+                code=code, question=task_info.content,
+                core_path=Path(__file__).with_name("core.py"),
+                system_config={"node_model": system.node_model, "cot_instruction": system.cot_instruction,
+                               "max_round": system.max_round, "max_sc": system.max_sc,
+                               "debate_role": system.debate_role},
+                session=session, retriever=self._retriever, model=self._model, temperature=None,
+                artifacts=self._question_artifacts / f"worker_{uuid4().hex}"))
+            return Info(**value)
         namespace: dict[str, Any] = {"LLMAgentBase": agent_class, "Info": Info,
                                      "__builtins__": __builtins__}
         exec(  # noqa: S102 — running model-generated architecture by design
@@ -287,7 +307,8 @@ class MASZeroAdapter(AbstractAdapter):
         identity = sha256(question_id.encode()).hexdigest()[:16]
         self._question_artifacts = root / f"{identity}_{uuid4().hex}"
         self._question_artifacts.mkdir(parents=True, exist_ok=False)
-        session = ResourceSession(tracker, self._limits, self._question_artifacts / "events.jsonl")
+        session = ResourceSession(tracker, self._limits, self._question_artifacts / "events.jsonl",
+                                  coverage="mas_zero_parent_calls_and_worker_rpc" if self._isolate_code else "mas_zero_in_process_helpers")
         tracker.tool_event_sink = session.write
         self._diagnostics: list[dict] = []
         trace: MASZeroTrace | None = None
@@ -473,6 +494,8 @@ class MASZeroAdapter(AbstractAdapter):
         elif log.error:
             log.failure_kind = "unknown"
         log.resource_summary = session.summary()
+        log.resource_summary["worker_process_deadline"] = self._isolate_code
+        log.resource_summary["security_sandbox"] = False
         log.resource_summary["candidate_failures"] = sum(bool(c["error"]) for c in candidates)
         log.resource_summary["diagnostics"] = self._diagnostics
         log.artifact_paths["events"] = str(session.journal)
@@ -503,6 +526,13 @@ class MASZeroAdapter(AbstractAdapter):
                 ),
             },
         ]
+        if self._isolate_code:
+            msg_list[0]["content"] += (
+                "\nExecution uses a supervised worker. Only math, random, statistics and collections "
+                "imports are available. Use the supplied LLMAgentBase, Info and self.retrieve/rerank/calculate. "
+                "No external clients, file access, classes, threads, subprocesses or private attributes "
+                "except self._usage_callback. Return Info from forward(self, taskInfo)."
+            )
         next_solution = self._call_meta(msg_list, meta_cb)
 
         for n in range(self._n_generation):

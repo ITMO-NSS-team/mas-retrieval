@@ -6,12 +6,18 @@ import os
 import re
 import sys
 from pathlib import Path
+from dataclasses import asdict
+from hashlib import sha256
+from uuid import uuid4
+from contextlib import AsyncExitStack
 from typing import Any
 
 from marlib.adapters.base import AbstractAdapter, register
 from marlib.adapters.construction import task_description
+from marlib.provenance import file_hash
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
+from marlib.tracing.resources import BudgetExhausted, ResourceLimits, ResourceSession, tracked_async_client, run_with_deadline
 
 # Description surfaced to AutoMAS' meta-agent (PoolGenerator) so it knows the
 # corpus-retrieval server exists and is the way to ground answers. Without this
@@ -24,8 +30,9 @@ before answering corpus/document questions; do not rely on web search or prior
 knowledge for them.
 
 Tools:
-- retrieval_search(query, top_k=10, use_rerank=True): semantic search over the
-  benchmark corpus; returns ranked passages with titles and scores.
+- retrieve(query, top_k=20): dense search over the shared benchmark corpus.
+- rerank(query, top_k=10): re-score this agent's most recent retrieve results.
+  Always call after retrieve. Use model/tool calls economically.
 - calculate(expression): evaluate a math expression safely (e.g. ratios).
 
 Use cases: financial-report QA, multi-hop document QA, factual lookup grounded
@@ -44,6 +51,8 @@ def _normalize_openrouter_model(model: str) -> str:
 
 @register("automas")
 class AutoMASAdapter(AbstractAdapter):
+    supports_resource_limits = True
+    supported_generation_modes = ("one_time", "per_task")
     def __init__(
         self, retriever: Any, model: str = "gpt-4o-mini", **kwargs: Any
     ) -> None:
@@ -51,13 +60,31 @@ class AutoMASAdapter(AbstractAdapter):
         if self._generation_mode is None:
             self._generation_mode = "per_task"
 
-        self._cached_pool: Any = None
-        self._cached_graph: Any = None
-        self._framework_ready = False
+        if self._generation_mode not in self.supported_generation_modes:
+            raise ValueError("Invalid MetaMAS generation mode")
+        scope = "execution" if self._generation_mode == "one_time" else "full_answer"
+        self._limits = ResourceLimits(**{"scope": scope, "max_requests": 50, **self._config.get("resource_limits", {})})
+        if self._limits.scope != scope:
+            raise ValueError(f"MetaMAS {self._generation_mode} requires {scope} scope")
+        self._construction_limits = ResourceLimits(**{"scope": "construction", "max_requests": 10,
+            **self._config.get("construction_limits", {})})
+        if self._construction_limits.scope != "construction":
+            raise ValueError("construction_limits requires construction scope")
+        self._meta_model = _normalize_openrouter_model(self._config.get("meta_model", self._model))
+        self._temperature = self._config.get("temperature", 0.1)
+        self._generator_temperature = self._config.get("generator_temperature", 0.3)
+        for value in (self._temperature, self._generator_temperature):
+            if not isinstance(value, (int, float)) or not 0 <= value <= 2:
+                raise ValueError("Invalid temperature")
+        self._on_benchmark_change()
 
     def _on_benchmark_change(self) -> None:
         self._cached_pool = None
         self._cached_graph = None
+        self._construction_attempted = False
+        self._construction_session = None
+        self._construction_summary = None
+        self._construction_path = None
 
     def _build_task_description(self) -> str:
         """Build a generic task description from benchmark context for one_time mode."""
@@ -126,107 +153,194 @@ class AutoMASAdapter(AbstractAdapter):
             _RETRIEVAL_DESCRIPTION
         )
 
-    def _init_framework(self) -> None:
-        # Order matters: env before any AutoMAS import, then register the MCP
-        # server (which imports AutoMAS submodules).
-        self._set_llm_env()
-        self._setup_mcp_registry()
-        self._framework_ready = True
-
     def generate_system(self, question: str) -> str:
-        return "AutoMAS auto-generated multi-agent pipeline (per-task)"
+        return f"AutoMAS accounted workflow ({self._generation_mode})"
 
-    async def _ensure_structure(self, question: str) -> tuple[Any, Any]:
+    def effective_config(self):
+        from importlib.util import find_spec
+        spec = find_spec("automas")
+        external = Path(spec.origin).parent if spec and spec.origin else None
+        return {**super().effective_config(), "variant": "automas_accounted_v1",
+                "framework_source_sha256": {str(p.relative_to(external)): file_hash(p)
+                                             for p in sorted(external.rglob("*.py"))} if external else {},
+                "model": _normalize_openrouter_model(self._model), "meta_model": self._meta_model,
+                "temperature": self._temperature, "generator_temperature": self._generator_temperature,
+                "resource_limits": asdict(self._limits), "construction_limits": asdict(self._construction_limits),
+                "tools": ["retrieve", "rerank", "calculate"], "validation_retries": 3,
+                "stop_policy": "empty_answer_without_finalization",
+                "construction_cost_attribution": "first_question_for_CL_all_questions_for_QL"}
+
+    def set_run_context(self, **context):
+        if context != self._run_context:
+            self._on_benchmark_change()
+        super().set_run_context(**context)
+
+    async def _model_for(self, stack, session, phase, model):
+        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.providers.openrouter import OpenRouterProvider
+        client = await stack.enter_async_context(tracked_async_client(
+            session, phase, base_url="https://openrouter.ai/api/v1",
+            api_key=os.environ["OPENROUTER_API_KEY"]))
+        return OpenAIChatModel(model, provider=OpenRouterProvider(openai_client=client),
+                               settings={"temperature": self._generator_temperature if phase == "construction" else self._temperature})
+
+    def _toolsets(self, names, session):
+        from .runtime import BudgetedMCPServer, tool_hook
+        if any(name != "retrieval" for name in names):
+            raise ValueError("Workflow requested a tool server outside the shared corpus")
+        env = {k: v for k, v in os.environ.items()
+               if k.startswith("MARLIB_") or k in {"PATH", "PYTHONPATH", "HOME", "TMPDIR"}}
+        env["MARLIB_PRIMITIVE_TOOLS"] = "1"
+        env.pop("MARLIB_DOCIDS_FILE", None)
+        server = Path(__file__).resolve().parents[3] / "src/marlib/mcp_server.py"
+        return [BudgetedMCPServer(sys.executable, args=[str(server)], env=env, timeout=60,
+                                 process_tool_call=tool_hook(session), max_retries=3)
+                for _ in names]
+
+    async def _ensure_structure(self, question, session, stack):
         from automas.meta_agents import GraphGenerator, PoolGenerator
-
-        if (
-            self._generation_mode == "one_time"
-            and self._cached_pool is not None
-            and self._cached_graph is not None
-        ):
+        from pydantic_ai.usage import UsageLimits
+        if self._generation_mode == "one_time" and self._construction_attempted:
+            if self._cached_pool is None:
+                raise RuntimeError("CL workflow construction failed; this repeat cannot execute")
             return self._cached_pool, self._cached_graph
-
-        pool_gen = PoolGenerator()
-        graph_gen = GraphGenerator()
-
-        # Use generic benchmark description for one_time mode,
-        # specific question for per-task mode
+        self._construction_attempted = True
+        model = await self._model_for(stack, session, "construction", self._meta_model)
+        # Preserve upstream schema, prompts and validation; inject the tracked
+        # model at construction, before any generator can create a private client.
+        class TrackedGenerator:
+            def _create_model(self):
+                return model
+            async def _run_agent(self, prompt):
+                result = await self.agent.run(prompt, usage_limits=UsageLimits(request_limit=None))
+                self._usage = result.usage()
+                return result.output
+        class Pool(TrackedGenerator, PoolGenerator):
+            pass
+        class Graph(TrackedGenerator, GraphGenerator):
+            pass
+        pool_gen = Pool(model=self._meta_model, temperature=self._generator_temperature)
+        graph_gen = Graph(model=self._meta_model, temperature=self._generator_temperature)
+        task = self._build_task_description() if self._generation_mode == "one_time" else question
+        pool = await pool_gen.create_pool(task)
+        proposed_models = {node.id: node.model for node in pool}
+        for node in pool:
+            node.model = _normalize_openrouter_model(self._model)
+            if any(name != "retrieval" for name in node.mcp_tools):
+                raise ValueError("Generated pool requested an unavailable tool server")
+        self._construction_path.write_text(json.dumps({"task": task, "pool": pool.full_agents_data,
+            "graph": None, "proposed_models": proposed_models, "model": self._meta_model}, indent=2))
+        graph = await graph_gen.create_graph(pool, task)
+        self._construction_path.write_text(json.dumps({"task": task, "pool": pool.full_agents_data,
+            "graph": graph, "proposed_models": proposed_models,
+            "model": self._meta_model}, ensure_ascii=False, indent=2))
         if self._generation_mode == "one_time":
-            task_description = self._build_task_description()
-        else:
-            task_description = question
-
-        pool = await pool_gen.create_pool(task_description)
-        graph = await graph_gen.create_graph(pool, task_description)
-
-        if self._generation_mode == "one_time":
-            self._cached_pool = pool
-            self._cached_graph = graph
-
+            self._cached_pool, self._cached_graph = pool, graph
         return pool, graph
 
-    async def _execute_async(self, question: str) -> tuple[Any, Any]:
+    async def _execute_async(self, question, tracker, artifacts):
         from automas.pipeline import PipelineBuilder
+        from pydantic_ai import Agent
+        from pydantic_ai.usage import UsageLimits
+        async with AsyncExitStack() as stack:
+            combined = self._limits.scope == "full_answer"
+            needs_construction = self._generation_mode == "per_task" or not self._construction_attempted
+            if combined:
+                self._execution_session = ResourceSession(tracker, self._limits, artifacts / "answer.jsonl",
+                                                          coverage="automas_chat_completions_and_mcp_primitives")
+            if needs_construction:
+                self._construction_session = self._execution_session if combined else ResourceSession(
+                    tracker, self._construction_limits, artifacts / "construction.jsonl",
+                    coverage="automas_generators_chat_completions")
+                self._construction_path = artifacts / "workflow.json"
+            if needs_construction:
+                pool, graph = await run_with_deadline(self._construction_session,
+                    self._ensure_structure(question, self._construction_session, stack))
+            else:
+                pool, graph = await self._ensure_structure(question, self._construction_session, stack)
+            if not combined:
+                self._execution_session = ResourceSession(tracker, self._limits, artifacts / "execution.jsonl",
+                                                          coverage="automas_chat_completions_and_mcp_primitives")
+            session = self._execution_session
+            tracker.tool_event_sink = session.write
+            model = await self._model_for(stack, session, "answer_execution", _normalize_openrouter_model(self._model))
+            pipeline = PipelineBuilder().create_from_pool(pool, {k: list(v) for k,v in graph.items()}).build()
+            self._pipeline = pipeline
+            for node in pipeline.execution_order:
+                agent = Agent(name=node.name, model=model, instructions=node.instructions,
+                              toolsets=self._toolsets(node.mcp_tools, session), retries=3,
+                              model_settings={"temperature": self._temperature})
+                class Runner:
+                    def __init__(self, agent):
+                        self.agent = agent
+                    async def run(self, value):
+                        return await self.agent.run(value, usage_limits=UsageLimits(request_limit=None))
+                runner = Runner(agent)
+                node.build_agent = lambda runner=runner: runner
+            result = await run_with_deadline(session, pipeline.ainvoke(question))
+            if session.stop_reason:
+                raise BudgetExhausted(session.stop_reason)
+            return self._answer_from_pipeline(pipeline, result)
 
-        pool, graph = await self._ensure_structure(question)
-
-        # PipelineBuilder.create_from_pool() deep-copies agents internally,
-        # so pool/graph templates can be reused directly.
-        # Shallow-copy graph dict as a safety measure.
-        builder = PipelineBuilder()
-        pipeline = builder.create_from_pool(
-            pool, {k: list(v) for k, v in graph.items()}
-        ).build()
-        result = await pipeline.ainvoke(question)
-        return result, pipeline
-
-    def execute(
-        self,
-        question_id: str,
-        question: str,
-        gold_answer: str,
-    ) -> tuple[str, QuestionLog]:
-        self._init_framework()
-
-        tracker = TokenTracker(
-            question_id=question_id,
-            question=question,
-            gold_answer=gold_answer,
-        )
-
-        docids_file = Path(f"/tmp/marlib_docids_{question_id}.jsonl")
-        if docids_file.exists():
-            docids_file.unlink()
-        os.environ["MARLIB_DOCIDS_FILE"] = str(docids_file)
-
+    def execute(self, question_id, question, gold_answer):
+        tracker = TokenTracker(question_id, question, "")
+        root = Path(self._run_context.get("artifact_dir", "logs/automas"))
+        artifacts = root / f"{sha256(question_id.encode()).hexdigest()[:12]}_{uuid4().hex}"
+        artifacts.mkdir(parents=True, exist_ok=False)
+        self._execution_session = None
+        self._pipeline = None
+        if self._generation_mode == "per_task":
+            self._on_benchmark_change()
+        # A cached construction summary is frozen at the end of its first attempt.
+        charged_here = self._generation_mode == "per_task" or not self._construction_attempted
+        answer = ""
+        saved_registry = None
         try:
-            result, pipeline = asyncio.run(self._execute_async(question))
-            answer = self._answer_from_pipeline(pipeline, result)
-
-            prompt_tokens = getattr(pipeline, "input_tokens", 0) or 0
-            completion_tokens = getattr(pipeline, "output_tokens", 0) or 0
-
-            tracker.log_llm_call(
-                model=self._model,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                latency_ms=0,
-                function_calls=0,
-            )
-
-            self._log_tool_calls(tracker, docids_file)
-
-        except Exception as e:
-            tracker.set_error(str(e))
-            import traceback
-
-            traceback.print_exc()
-            answer = ""
-
-        if docids_file.exists():
-            docids_file.unlink()
-
-        return answer, tracker.to_question_log(answer)
+            self._set_llm_env()
+            from automas.mcp import registry, external_descriptions
+            saved_registry = (dict(registry.MCP_SERVERS), dict(external_descriptions.EXTERNAL_SERVER_DESCRIPTIONS))
+            self._setup_mcp_registry()
+            answer = asyncio.run(self._execute_async(question, tracker, artifacts))
+            if not answer.strip():
+                raise ValueError("Workflow returned an empty answer")
+        except Exception as exc:
+            tracker.set_error(f"{type(exc).__name__}: {exc}")
+        finally:
+            if saved_registry is not None:
+                registry.MCP_SERVERS.clear()
+                registry.MCP_SERVERS.update(saved_registry[0])
+                external_descriptions.EXTERNAL_SERVER_DESCRIPTIONS.clear()
+                external_descriptions.EXTERNAL_SERVER_DESCRIPTIONS.update(saved_registry[1])
+        sessions = [s for s in (self._construction_session if charged_here else None, self._execution_session) if s]
+        stopped = next((s.stop_reason for s in sessions if s.stop_reason), None)
+        if charged_here and self._construction_session and self._limits.scope != "full_answer":
+            self._construction_summary = self._construction_session.summary()
+        log = tracker.to_question_log(answer)
+        log.gold_answer = gold_answer
+        log.failure_kind = "budget_exhausted" if stopped else ("unknown" if log.error else None)
+        if stopped:
+            log.status = "budget_exhausted"
+        log.resource_summary = {
+            "execution": self._execution_session.summary() if self._execution_session else None,
+            "construction_reference": self._construction_summary,
+            "construction_charged_here": charged_here,
+            "budget_scope": self._limits.scope,
+            "workflow_nodes": len(self._pipeline.execution_order) if self._pipeline else None,
+        }
+        for key, session in (("construction", self._construction_session), ("execution", self._execution_session)):
+            if session:
+                log.artifact_paths[key + "_events"] = str(session.journal)
+        if self._construction_path and self._construction_path.exists():
+            log.artifact_paths["workflow"] = str(self._construction_path)
+        trace = getattr(self._pipeline, "_trace", None)
+        if trace is not None:
+            trace_path = artifacts / "pipeline_trace.json"
+            trace_path.write_text(trace.model_dump_json(indent=2))
+            log.artifact_paths["pipeline_trace"] = str(trace_path)
+        for session in set(sessions):
+            session.write({"kind": "question_end", "status": log.status, "error": log.error})
+        (artifacts / "question.json").write_text(log.model_dump_json(indent=2))
+        return answer, log
 
     # A generated workflow may end in a stage that reviews the answer instead of
     # producing one. AutoMAS' pipeline returns the *last* node's output

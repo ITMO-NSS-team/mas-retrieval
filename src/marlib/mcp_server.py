@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
 
 from marlib.adapters.calc import safe_eval
-from marlib.retriever import Retriever, RetrieverSettings
+from marlib.retriever import RetrieverSettings
+from marlib.adapters.tools import do_retrieve, do_rerank
+if TYPE_CHECKING:
+    from marlib.retriever import Retriever
 
 mcp = FastMCP("marlib-tools")
 
@@ -26,7 +30,6 @@ def _log_doc_ids(tool_name: str, query: str, doc_ids: list[str]) -> None:
         )
 
 
-@mcp.tool()
 def retrieval_search(query: str, top_k: int = 10, use_rerank: bool = True) -> str:
     """Search the document knowledge base for relevant passages.
 
@@ -54,7 +57,6 @@ def retrieval_search(query: str, top_k: int = 10, use_rerank: bool = True) -> st
     return "\n\n".join(parts)
 
 
-@mcp.tool()
 def calculate(expression: str) -> str:
     """Evaluate a mathematical expression safely.
 
@@ -73,6 +75,38 @@ def calculate(expression: str) -> str:
         return f"Error evaluating '{expression}': {e}"
 
 
+# The accounted comparison exposes the same primitives as the local agents.
+# Each stdio server has one toolset/agent and its own retrieval state.
+_last_retrieved = []
+
+
+def retrieve(query: str, top_k: int = 20) -> dict:
+    """Dense retrieval from the shared corpus. Call rerank after retrieving."""
+    global _last_retrieved
+    assert _retriever is not None, "retriever not initialized"
+    docs, text = do_retrieve(_retriever, query, top_k)
+    _last_retrieved = docs
+    return {"text": text, "doc_ids": [d.doc_id for d in docs]}
+
+
+def rerank(query: str, top_k: int = 10) -> dict:
+    """Re-score this agent's most recent retrieve results with the shared reranker."""
+    global _last_retrieved
+    if not _last_retrieved:
+        return {"text": "Error: No documents to rerank. Call retrieve() first.", "doc_ids": []}
+    docs, text = do_rerank(_retriever, query, _last_retrieved, top_k)
+    _last_retrieved = docs
+    return {"text": text, "doc_ids": [d.doc_id for d in docs]}
+
+
+if os.environ.get("MARLIB_PRIMITIVE_TOOLS") == "1":
+    mcp.tool(retrieve)
+    mcp.tool(rerank)
+else:
+    mcp.tool(retrieval_search)
+mcp.tool(calculate)
+
+
 if __name__ == "__main__":
     # This process speaks JSON-RPC over stdout (MCP stdio transport). marlib's
     # logger (logly) writes its console sink to stdout too, which corrupts the
@@ -88,5 +122,7 @@ if __name__ == "__main__":
         logger.add(sink=log_file)
 
     # Fields are populated from MARLIB_* env at runtime, not constructor args.
+    from marlib.retriever import Retriever
+
     _retriever = Retriever(RetrieverSettings())  # ty: ignore[missing-argument]
     mcp.run(show_banner=False)

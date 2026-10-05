@@ -1,0 +1,45 @@
+{
+  "mas_zero": {
+    "generation_mode": "per_task",
+    "meta_model": "openai/gpt-4o-mini",
+    "verifier_model": "openai/gpt-4o-mini",
+    "n_generation": 10,
+    "max_round": 2,
+    "max_sc": 3,
+    "fitness_threshold": 1.0,
+    "trace": true,
+    "resource_limits": {
+      "scope": "full_answer",
+      "max_requests": 100,
+      "max_tool_calls": 100,
+      "max_total_tokens": 750000,
+      "wall_seconds": 900,
+      "request_timeout": 60,
+      "output_per_request": 4096
+    },
+    "isolate_generated_code": true
+  },
+  "automas": {
+    "resource_limits": {
+      "scope": "full_answer",
+      "max_requests": 100,
+      "max_tool_calls": 100,
+      "max_total_tokens": 750000,
+      "wall_seconds": 900,
+      "request_timeout": 60,
+      "output_per_request": 4096
+    }
+  },
+  "single_agent": {
+    "resource_limits": {
+      "scope": "execution",
+      "max_requests": 100,
+      "max_tool_calls": 100,
+      "max_total_tokens": 750000,
+      "wall_seconds": 900,
+      "request_timeout": 60,
+      "output_per_request": 4096
+    },
+    "temperature": 0.1
+  }
+}

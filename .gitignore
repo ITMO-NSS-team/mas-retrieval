@@ -27,3 +27,6 @@ logs/
 .DS_Store
 .claude/
 automas_logs/
+
+# Local agent instructions at any directory level
+AGENTS.md

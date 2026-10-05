@@ -23,7 +23,7 @@ from marlib.adapters.base import AbstractAdapter, register
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
 if TYPE_CHECKING:
     from marlib.retriever.core import Document, Retriever
-from marlib.tracing.resources import BudgetExhausted, ResourceLimits, ResourceSession, tracked_async_client
+from marlib.tracing.resources import BudgetExhausted, ResourceLimits, ResourceSession, tracked_async_client, run_with_deadline
 from marlib.tracing.schemas import QuestionLog
 from marlib.tracing.tracker import TokenTracker
 
@@ -167,9 +167,9 @@ class SingleAgentAdapter(AbstractAdapter):
         try:
             prompt, prompt_metadata = self._prepare_prompt(tracker, artifacts)
             session = ResourceSession(tracker, self._limits, artifacts / "execution.jsonl",
-                                      coverage="single_agent_chat_completions_and_local_tools")
+                                      coverage=self._execution_coverage())
             tracker.tool_event_sink = session.write
-            answer = asyncio.run(self._answer(question, prompt, tracker, session))
+            answer = asyncio.run(run_with_deadline(session, self._answer(question, prompt, tracker, session)))
             if not isinstance(answer, str) or not answer.strip():
                 raise ValueError("Agent returned an empty answer")
         except BudgetExhausted as e:
@@ -178,7 +178,7 @@ class SingleAgentAdapter(AbstractAdapter):
             answer = ""
         except Exception as e:
             tracker.set_error(f"{type(e).__name__}: {e}")
-            failure_kind = "unknown"
+            failure_kind = self._failure_kind(e)
             answer = ""
         log = tracker.to_question_log(answer)
         log.gold_answer = gold_answer
@@ -196,3 +196,9 @@ class SingleAgentAdapter(AbstractAdapter):
 
     def _attach_construction(self, log: QuestionLog) -> None:
         """Hook for a generated prompt, including unsuccessful construction."""
+
+    def _failure_kind(self, error: Exception) -> str:
+        return "unknown"
+
+    def _execution_coverage(self):
+        return "single_agent_chat_completions_and_local_tools"

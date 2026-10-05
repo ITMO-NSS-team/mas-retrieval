@@ -70,7 +70,7 @@ class TokenTracker:
 
     @contextmanager
     def track_tool(
-        self, tool_name: str, query: str, top_k: int
+        self, tool_name: str, query: str, top_k: int, phase: str = "answer_execution"
     ) -> Generator[list[str], None, None]:
         """Time a tool call; append returned doc_ids to the yielded list."""
         results: list[str] = []
@@ -83,7 +83,7 @@ class TokenTracker:
             raise
         finally:
             latency_ms = (time.perf_counter() - start) * 1000
-            self.log_tool_call(tool_name, query, top_k, results, latency_ms, error=error)
+            self.log_tool_call(tool_name, query, top_k, results, latency_ms, phase=phase, error=error)
 
     @contextmanager
     def track_llm(self, model: str) -> Generator[dict[str, Any], None, None]:
