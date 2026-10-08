@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING, Any
 import backoff
 import openai
 
+from marlib.tracing.observation import completion_client
+
 from marlib.adapters.base import AbstractAdapter, register
 from marlib.adapters.tools import do_calculate, do_rerank, do_retrieve
 if TYPE_CHECKING:
@@ -208,68 +210,68 @@ class ADASAdapter(AbstractAdapter):
     )
     def _call_meta_model(self, prompt: str) -> dict | None:
         """Call the meta-model to generate an architecture."""
-        client = openai.OpenAI(
+        with completion_client(
             base_url=os.environ.get("OPENAI_BASE_URL"),
             api_key=os.environ.get("OPENAI_API_KEY"),
-        )
+        ) as client:
 
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ]
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ]
 
-        for attempt in range(self._debug_max):
-            response = client.chat.completions.create(
-                model=self._meta_model,
-                messages=messages,
-                response_format={"type": "json_object"},
-            )
-
-            text = response.choices[0].message.content or ""
-            try:
-                solution = json.loads(text)
-            except json.JSONDecodeError:
-                logger.warning(
-                    "Meta-model returned invalid JSON (attempt %d)", attempt + 1
+            for attempt in range(self._debug_max):
+                response = client.chat.completions.create(
+                    model=self._meta_model,
+                    messages=messages,
+                    response_format={"type": "json_object"},
                 )
-                continue
 
-            if not all(k in solution for k in ("name", "thought", "code")):
-                logger.warning(
-                    "Meta-model missing required keys (attempt %d)", attempt + 1
-                )
-                continue
+                text = response.choices[0].message.content or ""
+                try:
+                    solution = json.loads(text)
+                except json.JSONDecodeError:
+                    logger.warning(
+                        "Meta-model returned invalid JSON (attempt %d)", attempt + 1
+                    )
+                    continue
 
-            if "def forward(self, taskInfo):" not in solution["code"]:
-                logger.warning(
-                    "Generated code missing forward() signature (attempt %d)",
-                    attempt + 1,
-                )
-                continue
+                if not all(k in solution for k in ("name", "thought", "code")):
+                    logger.warning(
+                        "Meta-model missing required keys (attempt %d)", attempt + 1
+                    )
+                    continue
 
-            # Syntax check
-            try:
-                compile(solution["code"], "<generated>", "exec")
-            except SyntaxError as e:
-                logger.warning(
-                    "Generated code has syntax error (attempt %d): %s", attempt + 1, e
-                )
-                messages.append({"role": "assistant", "content": text})
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Syntax error in your code: {e}\n"
-                            "Please fix the code and return the corrected version "
-                            "in the same JSON format."
-                        ),
-                    }
-                )
-                continue
+                if "def forward(self, taskInfo):" not in solution["code"]:
+                    logger.warning(
+                        "Generated code missing forward() signature (attempt %d)",
+                        attempt + 1,
+                    )
+                    continue
 
-            return solution
+                # Syntax check
+                try:
+                    compile(solution["code"], "<generated>", "exec")
+                except SyntaxError as e:
+                    logger.warning(
+                        "Generated code has syntax error (attempt %d): %s", attempt + 1, e
+                    )
+                    messages.append({"role": "assistant", "content": text})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Syntax error in your code: {e}\n"
+                                "Please fix the code and return the corrected version "
+                                "in the same JSON format."
+                            ),
+                        }
+                    )
+                    continue
 
-        return None
+                return solution
+
+            return None
 
     def _make_tool_closures(
         self,

@@ -1,0 +1,32 @@
+{
+  "adas_compact_prompt": {
+    "generation_mode": "one_time",
+    "meta_model": "openai/gpt-4o-mini",
+    "n_generation": 1,
+    "blocks": [
+      "RAG_COT",
+      "RAG_REFLEXION",
+      "RAG_DEBATE",
+      "RAG_COT_SC"
+    ],
+    "max_round": 2,
+    "max_sc": 3,
+    "debug_max": 3,
+    "trace": false
+  },
+  "generated_single_agent_legacy": {
+    "generation_mode": "one_time",
+    "meta_model": "openai/gpt-4o-mini",
+    "generator_temperature": 0.3,
+    "construction_limits": {
+      "scope": "construction",
+      "max_requests": 3,
+      "max_input_tokens": null,
+      "max_output_tokens": null,
+      "max_total_tokens": null,
+      "wall_seconds": null,
+      "request_timeout": 60,
+      "output_per_request": 4096
+    }
+  }
+}

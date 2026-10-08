@@ -18,6 +18,8 @@ from typing import Any, Callable
 import backoff
 import openai
 
+from marlib.tracing.observation import completion_client, observe_agent
+
 logger = logging.getLogger(__name__)
 
 Info = namedtuple(
@@ -58,6 +60,7 @@ class LLMAgentBase:
         self.temperature = temperature
         self.usage_callback = usage_callback
         self.id = uuid.uuid4().hex[:8]
+        observe_agent(self)
 
     def generate_prompt(
         self,
@@ -173,37 +176,37 @@ def _get_json_response(
     usage_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, str]:
     """Call OpenAI and parse a JSON response containing output_fields."""
-    client = openai.OpenAI(
+    with completion_client(
         base_url=os.environ.get("OPENAI_BASE_URL"),
         api_key=os.environ.get("OPENAI_API_KEY"),
-    )
+    ) as client:
 
-    kwargs: dict[str, Any] = {"model": model or "gpt-4o-mini", "messages": messages}
-    if temperature is not None:
-        kwargs["temperature"] = temperature
-    kwargs["response_format"] = {"type": "json_object"}
+        kwargs: dict[str, Any] = {"model": model or "gpt-4o-mini", "messages": messages}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        kwargs["response_format"] = {"type": "json_object"}
 
-    for _ in range(5):
-        response = client.chat.completions.create(**kwargs)
-        usage = response.usage
-        if usage and usage_callback:
-            usage_callback(usage.prompt_tokens, usage.completion_tokens)
+        for _ in range(5):
+            response = client.chat.completions.create(**kwargs)
+            usage = response.usage
+            if usage and usage_callback:
+                usage_callback(usage.prompt_tokens, usage.completion_tokens)
 
-        text = response.choices[0].message.content or ""
-        try:
-            json_dict = json.loads(text)
-            if set(json_dict.keys()) >= set(output_fields):
-                return {k: json_dict[k] for k in output_fields}
-        except (json.JSONDecodeError, KeyError):
-            pass
+            text = response.choices[0].message.content or ""
+            try:
+                json_dict = json.loads(text)
+                if set(json_dict.keys()) >= set(output_fields):
+                    return {k: json_dict[k] for k in output_fields}
+            except (json.JSONDecodeError, KeyError):
+                pass
 
-    # Fallback: return empty fields
-    logger.warning(
-        "LLM failed to produce valid JSON with fields %s after 5 attempts (model=%s)",
-        output_fields,
-        model,
-    )
-    return {k: "" for k in output_fields}
+        # Fallback: return empty fields
+        logger.warning(
+            "LLM failed to produce valid JSON with fields %s after 5 attempts (model=%s)",
+            output_fields,
+            model,
+        )
+        return {k: "" for k in output_fields}
 
 
 class AgentSystem:
