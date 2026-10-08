@@ -195,15 +195,25 @@ verdicts remain missing, with explicit metric denominators. Retrieval call count
 now count `retrieve`/`search`; rerank, calculator, and total tools are separate.
 Historical logs retain their original semantics and must not be rewritten.
 
-### FinanceBench controls and current priorities (2026-10-05)
+### Prompt-ablation adapters
 
-FRAMES is deferred while its source coverage remains incomplete. Its fixed IDs
-and downloaded snapshot are retained. `configs/run_plan.json` marks both FRAMES
-grids `enabled: false`; `scripts/estimate_runs.py` excludes them from active
-totals and lists them separately. The active estimate includes the FinanceBench
-MAS-Zero comparison and the generated-instruction control. It does not yet price
-the additional levels of a multiple-budget sweep. `adas_budgeted` is now
-included as a provisional single-budget condition.
+- `adas_compact_prompt` adds a compactness instruction to the original ADAS
+  generator while retaining its execution policy and retry/fallback behavior.
+- `generated_single_agent_legacy` generates a reusable instruction for a single
+  agent with the original executor defaults, including the framework's
+  50-logical-request limit and default tool scheduling.
+
+Both save model/tool events and generated artifacts per run, with construction
+usage accounted separately. Configuration: `configs/finance_prompt_ablation.json`.
+
+On a Linux machine with FinanceBench data and retrieval models already prepared,
+run a three-question pilot for each adapter from the repository root:
+
+```sh
+sh scripts/run_finance_prompt_pilot.sh
+```
+
+### Generated-instruction control
 
 `generated_single_agent` implements the CL instruction control. The generator
 receives the benchmark description and the same first three unlabelled examples
