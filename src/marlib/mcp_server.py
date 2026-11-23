@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from inspect import getdoc
 import json
 import os
 from typing import TYPE_CHECKING
@@ -8,7 +9,7 @@ from fastmcp import FastMCP
 
 from marlib.adapters.calc import safe_eval
 from marlib.retriever import RetrieverSettings
-from marlib.adapters.tools import do_retrieve, do_rerank
+from marlib.adapters.tools import do_retrieve, do_rerank, format_docs
 if TYPE_CHECKING:
     from marlib.retriever import Retriever
 
@@ -43,18 +44,15 @@ def retrieval_search(query: str, top_k: int = 10, use_rerank: bool = True) -> st
     Returns:
         Formatted ranked passages with titles and scores.
     """
-    assert _retriever is not None, "retriever not initialized (run as __main__)"
-    top_k = min(top_k, 20)
-    docs = _retriever.search(query, top_k=top_k, use_rerank=use_rerank)
-    doc_ids = [doc.doc_id for doc in docs]
-    _log_doc_ids("retrieve", query, doc_ids)
+    result = _ranked_search(query, top_k, use_rerank)
+    _log_doc_ids("retrieve", query, result["doc_ids"])
+    return result["text"]
 
-    if not docs:
-        return "No results found."
-    parts = []
-    for i, doc in enumerate(docs, 1):
-        parts.append(f"[{i}] {doc.title} (score: {doc.score:.3f})\n{doc.text}")
-    return "\n\n".join(parts)
+
+def _ranked_search(query: str, top_k: int = 10, use_rerank: bool = True) -> dict:
+    assert _retriever is not None, "retriever not initialized (run as __main__)"
+    docs = _retriever.search(query, top_k=min(top_k, 20), use_rerank=use_rerank)
+    return {"text": format_docs(docs), "doc_ids": [doc.doc_id for doc in docs]}
 
 
 def calculate(expression: str) -> str:
@@ -102,6 +100,10 @@ def rerank(query: str, top_k: int = 10) -> dict:
 if os.environ.get("MARLIB_PRIMITIVE_TOOLS") == "1":
     mcp.tool(retrieve)
     mcp.tool(rerank)
+elif os.environ.get("MARLIB_TRACKED_SEARCH") == "1":
+    # Same public name, input schema and description. The parent logs the
+    # final document IDs and passes just the historical formatted text to the agent.
+    mcp.tool(name="retrieval_search", description=getdoc(retrieval_search))(_ranked_search)
 else:
     mcp.tool(retrieval_search)
 mcp.tool(calculate)

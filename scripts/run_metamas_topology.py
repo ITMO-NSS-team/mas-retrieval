@@ -50,8 +50,8 @@ def check_retrieval(spec, settings, corpus_hash, corpus_count):
         raise ValueError("FinanceBench index and corpus have different document counts")
     if origin is None:
         origin = verify_existing_index(retriever._collection, spec.corpus_path, retriever._embedder)
-    docs = retriever.retrieve("reported revenue", top_k=2)
-    if not docs or not retriever.rerank("reported revenue", docs, top_k=1):
+    docs = retriever.search("reported revenue", top_k=10, use_rerank=True)
+    if not docs:
         raise ValueError("FinanceBench retrieval/reranking returned no documents")
     return {"index_provenance": origin, "retrieved_ids": [d.doc_id for d in docs], "document_count": corpus_count}
 
@@ -73,7 +73,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--data-dir", type=Path, default=ROOT / "experiments/benchmarks",
                    help="Prepared benchmark root containing financebench/ (may be in another checkout)")
-    p.add_argument("--output", type=Path, default=ROOT / "results/metamas-financebench-topology")
+    p.add_argument("--output", type=Path, default=ROOT / "results/metamas-financebench-ranked-search")
     p.add_argument("--check", action="store_true", help="Validate data, framework and retrieval without LLM calls")
     args = p.parse_args(argv)
     args.data_dir, args.output = args.data_dir.resolve(), args.output.resolve()

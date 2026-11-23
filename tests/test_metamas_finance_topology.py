@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 
@@ -32,6 +33,8 @@ def test_one_agent_retries_cardinality_without_dropping_a_generated_role(framewo
     assert row["construction"]["calls"] == 3 and trace.num_llm_calls == 1
     schema = payloads[0]["tools"][0]["function"]["parameters"]
     assert '"minItems": 1' in json.dumps(schema) and '"maxItems": 1' in json.dumps(schema)
+    assert "retrieval_search(query, top_k=10, use_rerank=True)" in str(payloads[0]["messages"])
+    assert "retrieve(query, top_k=20)" not in str(payloads[0]["messages"])
     assert "generate exactly one agent" in str(payloads[0]["messages"])
     assert "generate exactly one agent" not in str(payloads[-2]["messages"])
     assert "GOLD" not in str(payloads)
@@ -166,3 +169,62 @@ def test_recovery_after_retrieval_error_before_execution_session(framework, http
     assert study.answer_for(a, tmp_path, q).predicted_answer == "ok"
     assert study.answer_for(a, tmp_path, q).predicted_answer == "ok"
     assert len(seen) == 2
+
+
+def test_one_agent_ranked_search_interface_and_trace(tmp_path, monkeypatch):
+    from marlib.tracing.resources import ResourceLimits, ResourceSession
+    from marlib.tracing.tracker import TokenTracker
+
+    backend = tmp_path / "fake_corpus.py"
+    backend.write_text('''from types import SimpleNamespace as NS
+import marlib.mcp_server as module
+class Corpus:
+    def search(self, query, top_k, use_rerank):
+        ids = list(range(20))
+        if use_rerank:
+            ids.reverse()
+        return [NS(doc_id=f"doc-{i}", title="Test", score=1.0, text=f"passage-{i}.") for i in ids[:top_k]]
+module._retriever = Corpus()
+module.mcp.run(show_banner=False)
+''')
+    # Even if the host uses primitive tools elsewhere, the experiment exports its own profile.
+    monkeypatch.setenv("MARLIB_PRIMITIVE_TOOLS", "1")
+    monkeypatch.setenv("PYTHONPATH", str(Path("src").resolve()))
+    adapter = factory("one_agent", tmp_path)
+    assert adapter.effective_config()["tools"] == ["retrieval_search", "calculate"]
+    tracker = TokenTracker("q", "q", "")
+    journal = tmp_path / "events.jsonl"
+    session = ResourceSession(tracker, ResourceLimits(), journal)
+    mcp, = adapter._toolsets(["retrieval"], session)
+    mcp.args = [str(backend)]
+
+    async def check_server():
+        async with mcp:
+            tools = {t.name: t for t in await mcp.list_tools()}
+            assert set(tools) == {"retrieval_search", "calculate"}
+            schema = tools["retrieval_search"].inputSchema["properties"]
+            assert schema["top_k"]["default"] == 10 and schema["use_rerank"]["default"] is True
+            for args, expected in [({}, list(range(19, 9, -1))),
+                                   ({"top_k": 5}, list(range(19, 14, -1))),
+                                   ({"top_k": 2, "use_rerank": False}, [0, 1]),
+                                   ({"top_k": 40}, list(range(19, -1, -1)))]:
+                text = await mcp.process_tool_call(None, mcp.direct_call_tool, "retrieval_search",
+                                                   {"query": "Q", **args})
+                assert text == "\n\n".join(f"[{n}] Test (score: 1.000)\npassage-{i}."
+                                           for n, i in enumerate(expected, 1))
+                assert tracker.to_question_log("").tool_calls[-1].results == [f"doc-{i}" for i in expected]
+            assert await mcp.process_tool_call(None, mcp.direct_call_tool, "calculate",
+                                               {"expression": "1+2"}) == "1+2 = 3.0"
+    asyncio.run(check_server())
+    log = tracker.to_question_log("")
+    assert log.tool_counts == {"retrieve": 4, "calculate": 1}
+    opts = [e for e in study.events(journal) if e["kind"] == "retrieval_search"]
+    assert [(e["top_k"], e["use_rerank"]) for e in opts] == [(10, True), (5, True), (2, False), (40, True)]
+
+
+def test_unavailable_tool_name_is_saved_in_failed_draw(framework, http_models, tmp_path):
+    replies, _ = http_models
+    replies.append(structured([dict(candidate("Analyst"), mcp_tools=["unavailable-server"])]))
+    row = study.prepare_draw(factory("one_agent", tmp_path), tmp_path)
+    assert row["status"] == "invalid_construction" and "unavailable-server" in row["error"]
+    assert row["construction"]["calls"] == 1

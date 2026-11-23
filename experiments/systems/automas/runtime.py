@@ -9,16 +9,23 @@ class BudgetedMCPServer(MCPServerStdio):
         return super().tool_for_tool_def(tool_def)
 
 
-def tool_hook(session):
+def tool_hook(session, *, combined=False):
+    search_names = {"retrieval_search"} if combined else {"retrieve", "rerank"}
+    defaults = {"retrieve": 20, "rerank": 10, "retrieval_search": 10, "calculate": 0}
+
     async def call(ctx, call_tool, name, args):
-        if name not in {"retrieve", "rerank", "calculate"}:
+        if name != "calculate" and name not in search_names:
             raise ValueError(f"Unexpected MCP tool: {name}")
         session.tool()
         query = args.get("query", args.get("expression", ""))
-        top_k = args.get("top_k", 20 if name == "retrieve" else 10 if name == "rerank" else 0)
-        with session.tracker.track_tool(name, query, top_k) as results:
+        top_k = args.get("top_k", defaults[name])
+        trace_name = "retrieve" if name == "retrieval_search" else name
+        if name == "retrieval_search":
+            session.write({"kind": "retrieval_search", "query": query, "top_k": top_k,
+                           "use_rerank": args.get("use_rerank", True)})
+        with session.tracker.track_tool(trace_name, query, top_k) as results:
             value = await call_tool(name, args)
-            if name in {"retrieve", "rerank"}:
+            if name in search_names:
                 if not isinstance(value, dict) or not isinstance(value.get("doc_ids"), list) or not isinstance(value.get("text"), str):
                     raise ValueError("MCP retrieval did not return source IDs and text")
                 if not all(isinstance(doc_id, str) for doc_id in value["doc_ids"]):

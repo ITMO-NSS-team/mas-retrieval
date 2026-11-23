@@ -51,6 +51,9 @@ def _normalize_openrouter_model(model: str) -> str:
 
 @register("automas")
 class AutoMASAdapter(AbstractAdapter):
+    _retrieval_description = _RETRIEVAL_DESCRIPTION
+    _tool_names = ("retrieve", "rerank", "calculate")
+    _execution_coverage = "automas_chat_completions_and_mcp_primitives"
     supports_resource_limits = True
     supported_generation_modes = ("one_time", "per_task")
     def __init__(
@@ -153,7 +156,7 @@ class AutoMASAdapter(AbstractAdapter):
         automas_registry.MCP_SERVERS["retrieval"] = retrieval_cfg
         external_descriptions.EXTERNAL_SERVER_DESCRIPTIONS.clear()
         external_descriptions.EXTERNAL_SERVER_DESCRIPTIONS["retrieval"] = (
-            _RETRIEVAL_DESCRIPTION
+            self._retrieval_description
         )
 
     @contextmanager
@@ -184,7 +187,7 @@ class AutoMASAdapter(AbstractAdapter):
                 "model": _normalize_openrouter_model(self._model), "meta_model": self._meta_model,
                 "temperature": self._temperature, "generator_temperature": self._generator_temperature,
                 "resource_limits": asdict(self._limits), "construction_limits": asdict(self._construction_limits),
-                "tools": ["retrieve", "rerank", "calculate"], "validation_retries": 3,
+                "tools": list(self._tool_names), "validation_retries": 3,
                 "stop_policy": "empty_answer_without_finalization",
                 "construction_cost_attribution": "first_question_for_CL_all_questions_for_QL"}
 
@@ -208,11 +211,13 @@ class AutoMASAdapter(AbstractAdapter):
             raise ValueError("Workflow requested a tool server outside the shared corpus")
         env = {k: v for k, v in os.environ.items()
                if k.startswith("MARLIB_") or k in {"PATH", "PYTHONPATH", "HOME", "TMPDIR"}}
-        env["MARLIB_PRIMITIVE_TOOLS"] = "1"
+        combined = "retrieval_search" in self._tool_names
+        env["MARLIB_PRIMITIVE_TOOLS"] = "0" if combined else "1"
+        env["MARLIB_TRACKED_SEARCH"] = "1" if combined else "0"
         env.pop("MARLIB_DOCIDS_FILE", None)
         server = Path(__file__).resolve().parents[3] / "src/marlib/mcp_server.py"
         return [BudgetedMCPServer(sys.executable, args=[str(server)], env=env, timeout=60,
-                                 process_tool_call=tool_hook(session), max_retries=3)
+                                 process_tool_call=tool_hook(session, combined=combined), max_retries=3)
                 for _ in names]
 
     @staticmethod
@@ -272,8 +277,9 @@ class AutoMASAdapter(AbstractAdapter):
             proposed_models = resume_pool["proposed_models"]
         for node in pool:
             node.model = _normalize_openrouter_model(self._model)
-            if any(name != "retrieval" for name in node.mcp_tools):
-                raise ValueError("Generated pool requested an unavailable tool server")
+            unavailable = [name for name in node.mcp_tools if name != "retrieval"]
+            if unavailable:
+                raise ValueError(f"Generated pool requested an unavailable tool server: {unavailable!r}")
         self._save_structure({"task": task, "pool": pool.full_agents_data,
             "graph": None, "proposed_models": proposed_models, "model": self._meta_model})
         graph = await graph_gen.create_graph(pool, task)
@@ -316,7 +322,7 @@ class AutoMASAdapter(AbstractAdapter):
             needs_construction = self._generation_mode == "per_task" or not self._construction_attempted
             if combined:
                 self._execution_session = ResourceSession(tracker, self._limits, artifacts / "answer.jsonl",
-                                                          coverage="automas_chat_completions_and_mcp_primitives")
+                                                          coverage=self._execution_coverage)
             if needs_construction:
                 pool, graph = await self._build_structure(tracker, artifacts, stack, question,
                                                          self._execution_session if combined else None)
@@ -324,7 +330,7 @@ class AutoMASAdapter(AbstractAdapter):
                 pool, graph = await self._ensure_structure(question, self._construction_session, stack)
             if not combined:
                 self._execution_session = ResourceSession(tracker, self._limits, artifacts / "execution.jsonl",
-                                                          coverage="automas_chat_completions_and_mcp_primitives")
+                                                          coverage=self._execution_coverage)
             session = self._execution_session
             tracker.tool_event_sink = session.write
             model = await self._model_for(stack, session, "answer_execution", _normalize_openrouter_model(self._model))

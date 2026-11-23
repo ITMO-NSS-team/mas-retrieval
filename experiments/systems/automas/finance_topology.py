@@ -62,7 +62,28 @@ def failed_infrastructure(errors):
     return next((s for s in errors if s and any(m in s.lower() for m in markers)), None)
 
 
+# Generator-facing tool description from the FinanceBench pilots at 045d44ae.
+_PILOT_RETRIEVAL_DESCRIPTION = """\
+Local document-corpus retrieval for the active benchmark. This is the ONLY way
+to access the benchmark's knowledge base — always use it to gather evidence
+before answering corpus/document questions; do not rely on web search or prior
+knowledge for them.
+
+Tools:
+- retrieval_search(query, top_k=10, use_rerank=True): semantic search over the
+  benchmark corpus; returns ranked passages with titles and scores.
+- calculate(expression): evaluate a math expression safely (e.g. ratios).
+
+Use cases: financial-report QA, multi-hop document QA, factual lookup grounded
+in the provided corpus.
+"""
+
+
 class FinanceWorkflow(AutoMASAdapter):
+    _retrieval_description = _PILOT_RETRIEVAL_DESCRIPTION
+    _tool_names = ("retrieval_search", "calculate")
+    _execution_coverage = "automas_chat_completions_and_mcp_ranked_search"
+
     async def construct(self, directory, partial=None):
         tracker = TokenTracker("construction", self._build_task_description(), "")
         with self._retrieval_registry():
