@@ -9,7 +9,7 @@ from pathlib import Path
 from dataclasses import asdict
 from hashlib import sha256
 from uuid import uuid4
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, contextmanager
 from typing import Any
 
 from marlib.adapters.base import AbstractAdapter, register
@@ -62,6 +62,9 @@ class AutoMASAdapter(AbstractAdapter):
 
         if self._generation_mode not in self.supported_generation_modes:
             raise ValueError("Invalid MetaMAS generation mode")
+        self._topology = self._config.get("workflow_topology", "standard")
+        if self._topology not in ("standard", "one_agent"):
+            raise ValueError("workflow_topology must be standard or one_agent")
         scope = "execution" if self._generation_mode == "one_time" else "full_answer"
         self._limits = ResourceLimits(**{"scope": scope, "max_requests": 50, **self._config.get("resource_limits", {})})
         if self._limits.scope != scope:
@@ -153,6 +156,21 @@ class AutoMASAdapter(AbstractAdapter):
             _RETRIEVAL_DESCRIPTION
         )
 
+    @contextmanager
+    def _retrieval_registry(self):
+        self._set_llm_env()
+        from automas.mcp import registry, external_descriptions
+        servers = dict(registry.MCP_SERVERS)
+        descriptions = dict(external_descriptions.EXTERNAL_SERVER_DESCRIPTIONS)
+        try:
+            self._setup_mcp_registry()
+            yield
+        finally:
+            registry.MCP_SERVERS.clear()
+            registry.MCP_SERVERS.update(servers)
+            external_descriptions.EXTERNAL_SERVER_DESCRIPTIONS.clear()
+            external_descriptions.EXTERNAL_SERVER_DESCRIPTIONS.update(descriptions)
+
     def generate_system(self, question: str) -> str:
         return f"AutoMAS accounted workflow ({self._generation_mode})"
 
@@ -197,7 +215,18 @@ class AutoMASAdapter(AbstractAdapter):
                                  process_tool_call=tool_hook(session), max_retries=3)
                 for _ in names]
 
-    async def _ensure_structure(self, question, session, stack):
+    @staticmethod
+    def _pool_from_snapshot(snapshot):
+        from automas.agent_pool import AgentPool
+        from automas.pipeline.node import AgentNode
+        return AgentPool([AgentNode(**node) for node in snapshot["pool"]])
+
+    def _save_structure(self, payload):
+        temporary = self._construction_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+        temporary.replace(self._construction_path)
+
+    async def _ensure_structure(self, question, session, stack, resume_pool=None):
         from automas.meta_agents import GraphGenerator, PoolGenerator
         from pydantic_ai.usage import UsageLimits
         if self._generation_mode == "one_time" and self._construction_attempted:
@@ -219,24 +248,64 @@ class AutoMASAdapter(AbstractAdapter):
             pass
         class Graph(TrackedGenerator, GraphGenerator):
             pass
-        pool_gen = Pool(model=self._meta_model, temperature=self._generator_temperature)
+        pool_class = Pool
+        if self._topology == "one_agent":
+            from typing import Annotated
+            from pydantic import Field
+
+            class OneAgentPool(Pool):
+                def _get_system_prompt(self):
+                    return super()._get_system_prompt() + "\nFor this workflow, generate exactly one agent."
+
+                def _get_output_type(self):
+                    return Annotated[super()._get_output_type(), Field(min_length=1, max_length=1)]
+
+            pool_class = OneAgentPool
+        pool_gen = pool_class(model=self._meta_model, temperature=self._generator_temperature)
         graph_gen = Graph(model=self._meta_model, temperature=self._generator_temperature)
         task = self._build_task_description() if self._generation_mode == "one_time" else question
-        pool = await pool_gen.create_pool(task)
-        proposed_models = {node.id: node.model for node in pool}
+        if resume_pool is None:
+            pool = await pool_gen.create_pool(task)
+            proposed_models = {node.id: node.model for node in pool}
+        else:
+            pool = self._pool_from_snapshot(resume_pool)
+            proposed_models = resume_pool["proposed_models"]
         for node in pool:
             node.model = _normalize_openrouter_model(self._model)
             if any(name != "retrieval" for name in node.mcp_tools):
                 raise ValueError("Generated pool requested an unavailable tool server")
-        self._construction_path.write_text(json.dumps({"task": task, "pool": pool.full_agents_data,
-            "graph": None, "proposed_models": proposed_models, "model": self._meta_model}, indent=2))
+        self._save_structure({"task": task, "pool": pool.full_agents_data,
+            "graph": None, "proposed_models": proposed_models, "model": self._meta_model})
         graph = await graph_gen.create_graph(pool, task)
-        self._construction_path.write_text(json.dumps({"task": task, "pool": pool.full_agents_data,
+        self._validate_topology(pool, graph)
+        self._save_structure({"task": task, "pool": pool.full_agents_data,
             "graph": graph, "proposed_models": proposed_models,
-            "model": self._meta_model}, ensure_ascii=False, indent=2))
+            "model": self._meta_model})
         if self._generation_mode == "one_time":
             self._cached_pool, self._cached_graph = pool, graph
         return pool, graph
+
+    def _validate_topology(self, pool, graph):
+        if self._topology == "one_agent" and (len(pool) != 1 or graph != {next(iter(pool)).name: []}):
+            raise ValueError("The one-agent condition requires exactly one executable node and no edges")
+
+    async def _build_structure(self, tracker, artifacts, stack, question, combined=None, resume_pool=None):
+        self._construction_session = combined or ResourceSession(
+            tracker, self._construction_limits, artifacts / "construction.jsonl",
+            coverage="automas_generators_chat_completions")
+        self._construction_path = artifacts / "workflow.json"
+        error = None
+        try:
+            return await run_with_deadline(self._construction_session,
+                self._ensure_structure(question, self._construction_session, stack, resume_pool))
+        except BaseException as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            if combined is None:
+                self._construction_summary = self._construction_session.summary()
+                self._construction_session.write({"kind": "construction_end", "error": error,
+                                                  "resources": self._construction_summary})
 
     async def _execute_async(self, question, tracker, artifacts):
         from automas.pipeline import PipelineBuilder
@@ -249,24 +318,8 @@ class AutoMASAdapter(AbstractAdapter):
                 self._execution_session = ResourceSession(tracker, self._limits, artifacts / "answer.jsonl",
                                                           coverage="automas_chat_completions_and_mcp_primitives")
             if needs_construction:
-                self._construction_session = self._execution_session if combined else ResourceSession(
-                    tracker, self._construction_limits, artifacts / "construction.jsonl",
-                    coverage="automas_generators_chat_completions")
-                self._construction_path = artifacts / "workflow.json"
-            if needs_construction:
-                construction_error = None
-                try:
-                    pool, graph = await run_with_deadline(self._construction_session,
-                        self._ensure_structure(question, self._construction_session, stack))
-                except BaseException as exc:
-                    construction_error = f"{type(exc).__name__}: {exc}"
-                    raise
-                finally:
-                    if not combined:
-                        # Freeze before execution starts, including failed generation.
-                        self._construction_summary = self._construction_session.summary()
-                        self._construction_session.write({"kind": "construction_end",
-                            "error": construction_error, "resources": self._construction_summary})
+                pool, graph = await self._build_structure(tracker, artifacts, stack, question,
+                                                         self._execution_session if combined else None)
             else:
                 pool, graph = await self._ensure_structure(question, self._construction_session, stack)
             if not combined:
@@ -305,23 +358,13 @@ class AutoMASAdapter(AbstractAdapter):
         # A cached construction summary is frozen at the end of its first attempt.
         charged_here = self._generation_mode == "per_task" or not self._construction_attempted
         answer = ""
-        saved_registry = None
         try:
-            self._set_llm_env()
-            from automas.mcp import registry, external_descriptions
-            saved_registry = (dict(registry.MCP_SERVERS), dict(external_descriptions.EXTERNAL_SERVER_DESCRIPTIONS))
-            self._setup_mcp_registry()
-            answer = asyncio.run(self._execute_async(question, tracker, artifacts))
+            with self._retrieval_registry():
+                answer = asyncio.run(self._execute_async(question, tracker, artifacts))
             if not answer.strip():
                 raise ValueError("Workflow returned an empty answer")
         except Exception as exc:
             tracker.set_error(f"{type(exc).__name__}: {exc}")
-        finally:
-            if saved_registry is not None:
-                registry.MCP_SERVERS.clear()
-                registry.MCP_SERVERS.update(saved_registry[0])
-                external_descriptions.EXTERNAL_SERVER_DESCRIPTIONS.clear()
-                external_descriptions.EXTERNAL_SERVER_DESCRIPTIONS.update(saved_registry[1])
         sessions = [s for s in (self._construction_session if charged_here else None, self._execution_session) if s]
         stopped = next((s.stop_reason for s in sessions if s.stop_reason), None)
         log = tracker.to_question_log(answer)
@@ -348,7 +391,10 @@ class AutoMASAdapter(AbstractAdapter):
             log.artifact_paths["pipeline_trace"] = str(trace_path)
         for session in set(sessions):
             session.write({"kind": "question_end", "status": log.status, "error": log.error})
-        (artifacts / "question.json").write_text(log.model_dump_json(indent=2))
+        log.artifact_paths["question"] = str(artifacts / "question.json")
+        checkpoint = artifacts / "question.tmp"
+        checkpoint.write_text(log.model_dump_json(indent=2))
+        checkpoint.replace(artifacts / "question.json")
         return answer, log
 
     # A generated workflow may end in a stage that reviews the answer instead of
