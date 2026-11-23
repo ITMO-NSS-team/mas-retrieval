@@ -310,6 +310,18 @@ Pass `--data-dir /path/to/mas-retrieval/experiments/benchmarks` when another che
 
 The command saves `results/metamas-financebench-ranked-search/summary.json` with per-draw graph size, accuracy, context recall, runtime errors and nominal token costs. Construction, answer execution and judging have separate totals. The one-agent mean and sample standard deviation are over the new workflows. The `standard_reference` field records the original aggregates for a descriptive comparison. The folder contains the ordered IDs, source hashes, model settings, exact graphs, instructions, per-question answers, scores and resource journals. Return the whole folder. Restart with the same command to reuse frozen workflows, answers and scores. A construction interrupted after pool creation resumes from that pool. An in-flight request may repeat. Invalid constructions remain recorded and reduce the reported number of evaluated draws. Interrupted attempts have separate records; observed token costs may omit unreported provider usage.
 
+### Matched standard MetaMAS on FinanceBench
+
+From the same Linux environment as the completed one-agent run, run:
+
+```sh
+.venv/bin/python scripts/run_metamas_topology.py --arm standard
+```
+
+The standard generator chooses its own roles, instructions and topology, including the option to use one agent. The first three independent draws are retained. Both conditions use the same ranked search, calculator, executor, accounting on failed questions, judge and 150 question IDs. The runner reads the verified one-agent `manifest.json` and `summary.json` from `results/metamas-financebench-ranked-search/`. Use `--one-agent-results PATH` if these files are elsewhere. Use `--check` with the same flags to verify the comparison inputs without model calls.
+
+Standard draws and per-question costs are saved in `results/metamas-financebench-standard-ranked-search/`. Its final `summary.json` records the new standard results in `arms.standard` and the reviewed one-agent results in `one_agent_reference`. Each draw reports the portion of execution costs spent on failed, empty answers in `failed_answer_execution`. Restart with the same command to resume.
+
 ### Run preparation on Linux
 
 The current Intel Mac has no wheel for the required `torch>=2.10`; the user will

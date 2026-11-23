@@ -114,11 +114,15 @@ def test_official_ids_and_registration_order():
         load_questions(SimpleNamespace(load_questions=lambda: rows[:-1]))
 
 
-def test_three_one_agent_draws_all_150_questions(framework, http_models, monkeypatch, tmp_path):
+@pytest.mark.parametrize("arm", ["one_agent", "standard"])
+def test_three_draws_all_150_questions(framework, http_models, monkeypatch, tmp_path, arm):
     from marlib.tracing.tracker import TokenTracker
     replies, payloads = http_models
-    for _ in range(3):
-        replies.extend([structured([candidate("Analyst")]), structured({"Analyst": []})])
+    for repeat in range(3):
+        graph = {"Analyst": []}
+        if arm == "standard" and repeat:
+            graph["Searcher"] = ["Analyst"]
+        replies.extend([structured([candidate(name) for name in graph]), structured(graph)])
     executions = []
     def execute(self, qid, question, gold):
         tracker = TokenTracker(qid, question, gold)
@@ -135,11 +139,17 @@ def test_three_one_agent_draws_all_150_questions(framework, http_models, monkeyp
     monkeypatch.setattr(study.FinanceWorkflow, "execute", execute)
     monkeypatch.setattr(study, "llm_accuracy", judge)
     qs = [dict(id=f"q{i}", question=f"Question {i}", answer="GOLD") for i in range(150)]
-    result = study.run(tmp_path, qs, factory)
+    reference = {"accuracy": {"mean": 0.551}, "evaluated": 3} if arm == "standard" else None
+    result = study.run(tmp_path, qs, factory, arm=arm, one_agent_reference=reference)
     assert result["status"] == "complete"
     assert len(executions) == len(set(executions)) == 450
-    assert {arm for arm, _, _ in executions} == {"one_agent"}
-    assert not list(tmp_path.glob("standard-*"))
+    assert {mode for mode, _, _ in executions} == {arm}
+    assert list(result["arms"]) == [arm]
+    assert result["arms"][arm]["agents"] == ([1, 2, 2] if arm == "standard" else [1, 1, 1])
+    if arm == "standard":
+        assert result["one_agent_reference"] == reference and "standard_reference" not in result
+        assert all("generate exactly one agent" not in str(p["messages"]) for p in payloads)
+        assert not list(tmp_path.glob("one_agent-*"))
     for row in result["draws"]:
         assert row["questions"] == row["correct"] == 150
         assert row["execution"]["calls"] == row["judge"]["calls"] == 150
@@ -228,3 +238,43 @@ def test_unavailable_tool_name_is_saved_in_failed_draw(framework, http_models, t
     row = study.prepare_draw(factory("one_agent", tmp_path), tmp_path)
     assert row["status"] == "invalid_construction" and "unavailable-server" in row["error"]
     assert row["construction"]["calls"] == 1
+
+def test_standard_charges_work_before_downstream_failure(framework, http_models, tmp_path):
+    from dataclasses import replace
+    replies, payloads = http_models
+    replies.extend([structured([candidate("Searcher"), candidate("Analyst")]),
+                    structured({"Searcher": ["Analyst"], "Analyst": []}), completion("evidence")])
+    adapter = factory("standard", tmp_path)
+    adapter._limits = replace(adapter._limits, max_requests=1)
+    draw = study.prepare_draw(adapter, tmp_path)
+    assert draw["structure"]["agents"] == 2
+    result = study.evaluate(adapter, tmp_path, [dict(id="q", question="Question", answer="gold")])
+    assert result["correct"] == 0 and result["judge"]["calls"] == 0
+    assert len(payloads) == 3 and result["execution"]["calls"] == 1
+    assert result["failed_answer_execution"] == result["execution"]
+    assert result["execution"]["usd"] == pytest.approx((10 * .15 + 5 * .60) / 1e6)
+
+
+def test_matched_reference_is_read_only_and_detects_protocol_drift(tmp_path, monkeypatch):
+    from copy import deepcopy
+    from scripts import run_metamas_topology as cli
+    archive = tmp_path / "reference"
+    old = {"conditions": {"one_agent": {"workflow_topology": "one_agent", "tools": ["retrieval_search", "calculate"]}},
+           "question_ids": ["q"], "data_dir": "/old/data", "retrieval": {"index_path": "/old/index"},
+           "source": {"source_sha256": {"/old/scripts/run_metamas_topology.py": "a",
+                                        "/old/src/marlib/mcp_server.py": "b"}, "packages": {"openai": "1"}}}
+    group = {"evaluated": 3, "accuracy": {"mean": 0.551}}
+    study.save(archive / "manifest.json", old)
+    study.save(archive / "summary.json", {"arms": {"one_agent": group}})
+    monkeypatch.setattr(cli, "ONE_AGENT_MANIFEST", cli.file_hash(archive / "manifest.json"))
+    monkeypatch.setattr(cli, "ONE_AGENT_SUMMARY", cli.file_hash(archive / "summary.json"))
+    new = deepcopy(old)
+    new["conditions"] = {"standard": {**old["conditions"]["one_agent"], "workflow_topology": "standard"}}
+    new["source"]["source_sha256"] = {"/new/scripts/run_metamas_topology.py": "c", "/new/src/marlib/mcp_server.py": "b"}
+    assert cli.verified_reference(archive, new)["accuracy"] == group["accuracy"]
+    new["source"]["source_sha256"]["/new/src/marlib/mcp_server.py"] = "changed"
+    with pytest.raises(ValueError, match="runtime_sources"):
+        cli.verified_reference(archive, new)
+    study.save(archive / "summary.json", {"status": "evaluating"})
+    with pytest.raises(ValueError, match="summary.json"):
+        cli.verified_reference(archive, old)

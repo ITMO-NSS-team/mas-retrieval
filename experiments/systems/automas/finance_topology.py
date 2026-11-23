@@ -1,4 +1,4 @@
-"""Resumable FinanceBench evaluation of one-agent MetaMAS against the submitted paper’s reference."""
+"""Resumable FinanceBench evaluation of standard and one-agent MetaMAS."""
 from __future__ import annotations
 
 import asyncio
@@ -16,7 +16,6 @@ from marlib.tracing.tracker import TokenTracker
 from .adapter import AutoMASAdapter
 
 MODEL = "openai/gpt-4o-mini"
-ARMS = ("one_agent",)
 STANDARD_REFERENCE = {
     "source": "Submitted paper, main results table, FinanceBench, corpus-level MetaMAS",
     "runs": 3, "questions_per_run": 150,
@@ -218,6 +217,8 @@ def evaluate(adapter, root, questions):
             print(f"{root.name}: {i}/{len(questions)}", flush=True)
     recall = [s["recall"] for s in scores if s["recall"] is not None]
     usd = cost(c.model_dump() for t in traces for c in t.llm_calls if c.phase == "answer_execution")
+    failed_usd = cost(c.model_dump() for t in traces if t.error and not t.predicted_answer.strip()
+                      for c in t.llm_calls if c.phase == "answer_execution")
     judge = cost({"prompt_tokens": s["usage"].get("prompt", 0), "completion_tokens": s["usage"].get("completion", 0),
                   "usage_known": any(s["usage"].values())} for s in scores if s["judge_called"])
     # Recoverable outages and interrupted requests are retained outside the method's cost.
@@ -233,38 +234,38 @@ def evaluate(adapter, root, questions):
             "accuracy": mean(s["accuracy"] for s in scores), "context_recall": mean(recall) if recall else None,
             "n_context_recall": len(recall), "answer_status": dict(Counter(t.status for t in traces)),
             "tool_calls": dict(sum((Counter(t.tool_counts) for t in traces), Counter())),
-            "execution": usd, "judge": judge, "interrupted_execution": overhead,
+            "execution": usd, "failed_answer_execution": failed_usd, "judge": judge, "interrupted_execution": overhead,
             "judge_failures": len(list((root / "questions").glob("*/judge_failures/*.json")))}
 
 
-def run(output, questions, make_adapter):
-    draws = []
-    saved = {}
+def run(output, questions, make_adapter, arm="one_agent", one_agent_reference=None):
+    if arm not in ("one_agent", "standard") or (arm == "standard") != (one_agent_reference is not None):
+        raise ValueError("The standard arm requires a completed one-agent reference")
+    draws, adapters = [], []
     for repeat in range(1, 4):
-        for arm in ARMS:
-            folder = output / f"{arm}-{repeat}"
-            adapter = make_adapter(arm, folder)
-            prepared = prepare_draw(adapter, folder)
-            draws.append({"arm": arm, "repeat": repeat, **prepared})
-            saved[(arm, repeat)] = adapter
-            save(output / "summary.json", {"status": "designing", "draws": draws})
+        folder = output / f"{arm}-{repeat}"
+        adapter = make_adapter(arm, folder)
+        prepared = prepare_draw(adapter, folder)
+        draws.append({"arm": arm, "repeat": repeat, **prepared})
+        adapters.append(adapter)
+        save(output / "summary.json", {"status": "designing", "draws": draws})
     save(output / "summary.json", {"status": "evaluating", "draws": draws})
-    for row in draws:
+    for row, adapter in zip(draws, adapters, strict=True):
         if row["status"] == "invalid_construction":
             continue
-        arm, repeat = row["arm"], row["repeat"]
-        folder = output / f"{arm}-{repeat}"
-        row.update(evaluate(saved[(arm, repeat)], folder, questions))
+        folder = output / f"{arm}-{row['repeat']}"
+        row.update(evaluate(adapter, folder, questions))
         save(output / "summary.json", {"status": "evaluating", "draws": draws})
-    groups = {}
-    for arm in ARMS:
-        valid = [r for r in draws if r["arm"] == arm and r["status"] == "evaluated"]
-        group = {"attempted": 3, "evaluated": len(valid), "agents": [r["structure"]["agents"] for r in valid]}
-        for key, values in (("accuracy", [r["accuracy"] for r in valid]),
-                            ("execution_usd", [r["execution"]["usd"] for r in valid])):
-            group[key] = {"mean": mean(values) if values else None, "sd": stdev(values) if len(values) > 1 else None}
-        groups[arm] = group
-    summary = {"status": "complete" if all(g["evaluated"] == 3 for g in groups.values()) else "incomplete",
-               "arms": groups, "standard_reference": STANDARD_REFERENCE, "draws": draws}
+
+    valid = [r for r in draws if r["status"] == "evaluated"]
+    group = {"attempted": 3, "evaluated": len(valid), "agents": [r["structure"]["agents"] for r in valid]}
+    for key, values in (("accuracy", [r["accuracy"] for r in valid]),
+                        ("execution_usd", [r["execution"]["usd"] for r in valid])):
+        group[key] = {"mean": mean(values) if values else None, "sd": stdev(values) if len(values) > 1 else None}
+    summary = {"status": "complete" if len(valid) == 3 else "incomplete", "arms": {arm: group}, "draws": draws}
+    if arm == "standard":
+        summary["one_agent_reference"] = one_agent_reference
+    else:
+        summary["standard_reference"] = STANDARD_REFERENCE
     save(output / "summary.json", summary)
     return summary

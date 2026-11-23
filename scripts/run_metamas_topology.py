@@ -1,4 +1,4 @@
-"""Run three independent one-agent MetaMAS workflows on FinanceBench using the paper’s standard reference."""
+"""Evaluate three independently generated FinanceBench workflows for the selected MetaMAS topology."""
 from __future__ import annotations
 
 import argparse
@@ -14,13 +14,61 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "src")]
 
 from dotenv import load_dotenv
-from experiments.systems.automas.finance_topology import ARMS, MODEL, RATES, FinanceWorkflow, read, run, save
+from experiments.systems.automas.finance_topology import MODEL, RATES, FinanceWorkflow, read, run, save
 from marlib.benchmarks import load_spec
 from marlib.provenance import file_hash, runtime_provenance
 from marlib.retriever.config import DEFAULT_EMBEDDER, DEFAULT_RERANKER, RetrieverSettings
 from scripts.preflight_finance import inspect_data, verify_existing_index
 
 IDS = ROOT / "configs/finance_prompt_ablation.ids.json"
+
+
+ONE_AGENT_RESULTS = ROOT / "results/metamas-financebench-ranked-search"
+STANDARD_RESULTS = ROOT / "results/metamas-financebench-standard-ranked-search"
+# Reviewed, complete Linux run at 7a101abb. Only its manifest and summary are read.
+ONE_AGENT_MANIFEST = "66451b8431697a6dc023f6d2702b613c14abfe8142ef14d6dce0f465526a59ae"
+ONE_AGENT_SUMMARY = "c9f757a640e5728c6e4446fa8d72575895590164c01a95693371f26b75595fd8"
+
+
+def protocol(manifest):
+    """Inputs that affect the experiment, independent of checkout and result locations."""
+    settings = {k: v for k, v in manifest.items() if k not in ("source", "conditions", "data_dir", "retrieval")}
+    settings["retrieval"] = {k: v for k, v in manifest["retrieval"].items() if k != "index_path"}
+    condition, = manifest["conditions"].values()
+    settings["condition"] = {k: v for k, v in condition.items() if k != "workflow_topology"}
+    files = manifest["source"]["source_sha256"]
+    runner, = (Path(k) for k in files if k.endswith("/scripts/run_metamas_topology.py"))
+    checkout, data = runner.parents[1], Path(manifest["data_dir"])
+    hashes = {}
+    for name, digest in files.items():
+        path = Path(name)
+        if path.is_relative_to(data):
+            name = "benchmark/" + str(path.relative_to(data))
+        elif path.is_relative_to(checkout):
+            name = str(path.relative_to(checkout))
+        # These two files were edited to select the arm and label its output.
+        if name not in ("scripts/run_metamas_topology.py", "experiments/systems/automas/finance_topology.py"):
+            hashes[name] = digest
+    settings["runtime_sources"] = hashes
+    packages = manifest["source"]["packages"]
+    settings["packages"] = {k: packages.get(k) for k in (
+        "pydantic", "pydantic-ai-slim", "openai", "fastmcp", "mcp", "chromadb",
+        "FlagEmbedding", "transformers", "torch", "sentence-transformers", "numpy")}
+    return settings
+
+
+def verified_reference(directory, current):
+    for name, expected in (("manifest.json", ONE_AGENT_MANIFEST), ("summary.json", ONE_AGENT_SUMMARY)):
+        if file_hash(directory / name) != expected:
+            raise ValueError(f"Expected the completed ranked-search one-agent run in {directory} ({name})")
+    old = protocol(read(directory / "manifest.json"))
+    new = protocol(current)
+    differences = [k for k in old.keys() | new.keys() if old.get(k) != new.get(k)]
+    if differences:
+        raise ValueError("Inputs differ from the one-agent run: " + ", ".join(sorted(differences)))
+    summary = read(directory / "summary.json")
+    return {"manifest_sha256": ONE_AGENT_MANIFEST, "summary_sha256": ONE_AGENT_SUMMARY,
+            **summary["arms"]["one_agent"]}
 
 
 def load_questions(spec):
@@ -73,13 +121,21 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--data-dir", type=Path, default=ROOT / "experiments/benchmarks",
                    help="Prepared benchmark root containing financebench/ (may be in another checkout)")
-    p.add_argument("--output", type=Path, default=ROOT / "results/metamas-financebench-ranked-search")
+    p.add_argument("--arm", choices=("one_agent", "standard"), default="one_agent",
+                   help="Select one arm. Standard lets MetaMAS choose the topology.")
+    p.add_argument("--one-agent-results", type=Path, default=ONE_AGENT_RESULTS,
+                   help="Completed ranked-search reference for the standard arm (read only)")
+    p.add_argument("--output", type=Path, help="Defaults to a separate result directory for each arm")
     p.add_argument("--check", action="store_true", help="Validate data, framework and retrieval without LLM calls")
     args = p.parse_args(argv)
-    args.data_dir, args.output = args.data_dir.resolve(), args.output.resolve()
+    out = (args.output or (STANDARD_RESULTS if args.arm == "standard" else ONE_AGENT_RESULTS)).resolve()
+    reference_dir = args.one_agent_results.resolve()
+    data_dir = args.data_dir.resolve()
+    if args.arm == "standard" and (out.is_relative_to(reference_dir) or reference_dir.is_relative_to(out)):
+        p.error("Choose separate, non-overlapping directories for the standard output and one-agent reference.")
     os.chdir(ROOT)
     key_available = env_setup()
-    spec = load_spec("financebench", args.data_dir.resolve())
+    spec = load_spec("financebench", data_dir)
     data, issues = inspect_data(spec.root)
     if issues:
         p.exit(2, "\n".join(issues) + "\n")
@@ -100,7 +156,6 @@ def main(argv=None):
         adapter.set_run_context(run_id=folder.name, artifact_dir=str(folder / "artifacts"))
         return adapter
 
-    out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
     with (out / ".lock").open("a") as lock:
         try:
@@ -118,15 +173,30 @@ def main(argv=None):
                     "index_provenance_sha256": file_hash(spec.index_path / "index_provenance.json"),
                     "question_ids": [q["id"] for q in questions], "data_dir": str(spec.root),
                     "retrieval": settings.model_dump(mode="json"), "source": source,
-                    "conditions": {arm: make_adapter(arm, out).effective_config() for arm in ARMS}}
+                    "conditions": {args.arm: make_adapter(args.arm, out).effective_config()}}
         path = out / "manifest.json"
-        if path.exists() and read(path) != manifest:
+        reference = None
+        if args.arm == "standard":
+            try:
+                reference = verified_reference(reference_dir, manifest)
+            except ValueError as exc:
+                p.exit(2, f"{exc}\n")
+        archived = (args.arm == "one_agent" and file_hash(path) == ONE_AGENT_MANIFEST
+                    and file_hash(out / "summary.json") == ONE_AGENT_SUMMARY)
+        if archived:
+            if protocol(read(path)) != protocol(manifest):
+                p.exit(2, "Inputs differ from the archived one-agent run.\n")
+            if not args.check:
+                print(f"Already complete: {out / 'summary.json'}")
+                return
+        elif path.exists() and read(path) != manifest:
             p.exit(2, "Run inputs or code differ from the saved manifest. Check the environment.\n")
         if not args.check and not key_available:
             p.exit(2, "Set OPENROUTER_API_KEY or the harness OpenRouter credentials in .env.\n")
         with multiprocessing.get_context("spawn").Pool(1) as worker:
             check = worker.apply(check_retrieval, (spec, settings, data["corpus.jsonl"]["sha256"], data["corpus_count"]))
-        save(out / "preflight.json", check)
+        if not archived:
+            save(out / "preflight.json", check)
         if args.check:
             print("FinanceBench data, framework and retrieval ready. Zero LLM calls.")
             return
@@ -134,7 +204,7 @@ def main(argv=None):
         commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True)
         if not (out / "checkout.json").exists():
             save(out / "checkout.json", {"git_commit": commit.stdout.strip() or None})
-        summary = run(out, questions, make_adapter)
+        summary = run(out, questions, make_adapter, arm=args.arm, one_agent_reference=reference)
         print(f"{summary['status']}: {out / 'summary.json'}")
         if summary["status"] != "complete":
             p.exit(2, "Some predeclared draws were invalid. See summary.json.\n")
